@@ -1,0 +1,27 @@
+from uuid import UUID
+from pydantic import BaseModel, EmailStr, Field
+
+
+class UserBase(BaseModel):
+    email: EmailStr
+    username: str
+    avatar_url: str | None = None
+
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=6)
+
+
+class UserUpdate(UserBase):
+    password: str | None = None
+
+
+class UserInDB(UserBase):
+    id: UUID
+    
+    class Config:
+        from_attributes = True
+
+
+class User(UserInDB):
+    pass
