@@ -94,24 +94,3 @@ def read_users_me(
     Get current user.
     """
     return current_user
-
-@router.post("/change-password")
-async def change_password(
-    password_update: UserPasswordUpdate,
-    current_user: Annotated[User, Depends(deps.get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Any:
-    """
-    Change password.
-    """
-    if not security.verify_password(password_update.old_password, current_user.password_hash):
-        raise HTTPException(
-            status_code=400,
-            detail="Incorrect old password",
-        )
-        
-    current_user.password_hash = security.get_password_hash(password_update.new_password)
-    db.add(current_user)
-    await db.commit()
-    
-    return {"message": "Password updated successfully"}

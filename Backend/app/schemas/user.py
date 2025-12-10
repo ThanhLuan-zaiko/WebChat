@@ -16,6 +16,11 @@ class UserUpdate(UserBase):
     password: str | None = None
 
 
+class UserPasswordUpdate(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=6)
+
+
 class UserInDB(UserBase):
     id: UUID
     

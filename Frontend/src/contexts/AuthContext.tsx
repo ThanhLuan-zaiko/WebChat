@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import { authService } from '../services/authService';
 
 interface User {
     id: string;
@@ -14,6 +15,7 @@ interface AuthContextType {
     isLoading: boolean;
     login: (token: string) => Promise<void>;
     logout: () => void;
+    changePassword: (oldPassword: string, newPassword: string) => Promise<any>;
     isAuthenticated: boolean;
 }
 
@@ -62,6 +64,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
     };
 
+    const changePassword = async (oldPassword: string, newPassword: string) => {
+        return authService.changePassword(oldPassword, newPassword);
+    };
+
     return (
         <AuthContext.Provider
             value={{
@@ -70,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 isLoading,
                 login,
                 logout,
+                changePassword,
                 isAuthenticated: !!user,
             }}
         >

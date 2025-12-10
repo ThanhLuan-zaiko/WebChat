@@ -1,148 +1,102 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-    Menu, Search, MoreVertical, Paperclip,
-    Smile, Mic, Phone, CheckCheck
+    Search, MoreVertical, Paperclip,
+    Smile, Mic, Phone
 } from 'lucide-react';
-// import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../components/ui';
-
-// Mock Data
-const MOCK_CHATS = [
-    {
-        id: '1',
-        name: 'Telegram',
-        avatar: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Telegram_logo.svg/1024px-Telegram_logo.svg.png',
-        lastMessage: 'Login code: 24058. Do not give this code to anyone.',
-        time: '20:57',
-        unreadCount: 0,
-        isOnline: true,
-        isVerified: true
-    },
-    {
-        id: '2',
-        name: 'Frontend Team',
-        avatar: 'https://ui-avatars.com/api/?name=FT&background=random',
-        lastMessage: 'Alice: Have you checked the latest PR?',
-        time: '18:30',
-        unreadCount: 3,
-        isGroup: true
-    },
-    {
-        id: '3',
-        name: 'John Doe',
-        avatar: 'https://ui-avatars.com/api/?name=John+Doe&background=random',
-        lastMessage: 'Sure, let\'s meet tomorrow.',
-        time: 'Yesterday',
-        unreadCount: 0,
-        isOnline: false
-    }
-];
-
-const MOCK_MESSAGES = [
-    {
-        id: 'm1',
-        sender: 'Telegram',
-        text: 'Login code: 24058. Do not give this code to anyone, even if they say they are from Telegram!\n\nThis code can be used to log in to your Telegram account. We never ask it for anything else.\n\nIf you didn\'t request this code by trying to log in on another device, simply ignore this message.',
-        time: '20:57',
-        isIncoming: true
-    },
-    {
-        id: 'm2',
-        sender: 'Me',
-        text: 'Thanks!',
-        time: '20:58',
-        isIncoming: false,
-        isRead: true
-    }
-];
-
-const SidebarItem = ({ chat, isSelected, onClick }: any) => (
-    <div
-        onClick={onClick}
-        className={cn(
-            "flex cursor-pointer items-center p-2 rounded-lg transition-colors mx-2",
-            isSelected ? "bg-[#2AABEE] text-white" : "hover:bg-gray-100"
-        )}
-    >
-        <img
-            src={chat.avatar}
-            alt={chat.name}
-            className="h-12 w-12 rounded-full object-cover mr-3"
-        />
-        <div className="flex-1 min-w-0">
-            <div className="flex justify-between items-baseline">
-                <h3 className="font-semibold truncate">{chat.name}</h3>
-                <span className={cn("text-xs", isSelected ? "text-blue-100" : "text-gray-500")}>
-                    {chat.time}
-                </span>
-            </div>
-            <p className={cn("text-sm truncate", isSelected ? "text-blue-100" : "text-gray-500")}>
-                {chat.lastMessage}
-            </p>
-        </div>
-        {chat.unreadCount > 0 && (
-            <div className={cn(
-                "ml-2 min-w-[20px] h-5 rounded-full flex items-center justify-center text-xs font-bold px-1.5",
-                isSelected ? "bg-white text-[#2AABEE]" : "bg-gray-400 text-white"
-            )}>
-                {chat.unreadCount}
-            </div>
-        )}
-    </div>
-);
-
-const MessageBubble = ({ message }: any) => (
-    <div className={cn(
-        "flex mb-2 max-w-[80%]",
-        message.isIncoming ? "self-start" : "self-end"
-    )}>
-        {!message.isIncoming && <div className="flex-1" />}
-        <div className={cn(
-            "px-3 py-1.5 rounded-lg shadow-sm relative",
-            message.isIncoming ? "bg-white rounded-tl-none" : "bg-[#EFFDDE] rounded-tr-none"
-        )}>
-            <p className="whitespace-pre-wrap text-[15px]">{message.text}</p>
-            <div className="flex justify-end items-center gap-1 mt-1">
-                <span className={cn("text-xs", message.isIncoming ? "text-gray-500" : "text-[#4fae4e]")}>
-                    {message.time}
-                </span>
-                {!message.isIncoming && <CheckCheck className="h-3 w-3 text-[#4fae4e]" />}
-            </div>
-        </div>
-    </div>
-);
+import { SidebarItem } from '../components/chat/SidebarItem';
+import { MessageBubble } from '../components/chat/MessageBubble';
+import { UserMenu } from '../components/chat/UserMenu';
+import type { Chat, Message } from '../types';
+import { chatService } from '../services/chatService';
+import { useAuth } from '../contexts/AuthContext';
 
 const HomePage = () => {
-    // const { user } = useAuth(); // Unused for now
-
+    const { user } = useAuth();
+    const [chats, setChats] = useState<Chat[]>([]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [messageInput, setMessageInput] = useState('');
+    const [isLoadingChats, setIsLoadingChats] = useState(false);
+    const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
-    // Layout Logic:
-    // Mobile: If chat selected -> Sidebar hidden, Chat visible
-    // Desktop: Sidebar visible, Chat visible if selected
+    // Fetch chats on mount
+    useEffect(() => {
+        const fetchChats = async () => {
+            try {
+                setIsLoadingChats(true);
+                const data = await chatService.getChats();
+                setChats(data);
+            } catch (error) {
+                console.error("Failed to fetch chats:", error);
+                // Optionally handle error UI here
+            } finally {
+                setIsLoadingChats(false);
+            }
+        };
+
+        fetchChats();
+    }, []);
+
+    // Fetch messages when a chat is selected
+    useEffect(() => {
+        if (!selectedChatId) return;
+
+        const fetchMessages = async () => {
+            try {
+                setIsLoadingMessages(true);
+                const data = await chatService.getMessages(selectedChatId);
+                // Map senderId to isIncoming if necessary, or assume backend provides it.
+                // If backend provides raw data, we might need to map it:
+                // const mappedMessages = data.map(m => ({ ...m, isIncoming: m.senderId !== user?.id }));
+                setMessages(data);
+            } catch (error) {
+                console.error("Failed to fetch messages:", error);
+            } finally {
+                setIsLoadingMessages(false);
+            }
+        };
+
+        fetchMessages();
+
+        // Polling for new messages (simple real-time simulation)
+        const interval = setInterval(fetchMessages, 3000);
+        return () => clearInterval(interval);
+
+    }, [selectedChatId, user?.id]);
 
     const handleChatSelect = (id: string) => {
         setSelectedChatId(id);
-        // On mobile, close sidebar after selection
         if (window.innerWidth < 768) {
             setIsSidebarOpen(false);
         }
     };
 
+    const handleSendMessage = async () => {
+        if (!messageInput.trim() || !selectedChatId) return;
+
+        try {
+            const newMessage = await chatService.sendMessage(selectedChatId, messageInput);
+            setMessages(prev => [...prev, newMessage]);
+            setMessageInput('');
+        } catch (error) {
+            console.error("Failed to send message:", error);
+        }
+    };
+
+    const selectedChat = chats.find(c => c.id === selectedChatId);
+
     return (
         <div className="flex h-screen overflow-hidden bg-white">
-            {/* Sidebar - Visible if open OR desktop */}
+            {/* Sidebar */}
             <div className={cn(
                 "flex flex-col border-r border-gray-200 bg-white transition-all duration-300 ease-in-out md:w-80 lg:w-96",
                 selectedChatId && !isSidebarOpen ? "hidden md:flex" : "w-full flex"
             )}>
                 {/* Sidebar Header */}
                 <div className="flex items-center gap-4 px-4 py-3">
-                    <button className="text-gray-500 hover:text-gray-700">
-                        <Menu className="h-6 w-6" />
-                    </button>
+                    <UserMenu />
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <input
@@ -155,27 +109,32 @@ const HomePage = () => {
 
                 {/* Chat List */}
                 <div className="flex-1 overflow-y-auto space-y-1 py-2">
-                    {MOCK_CHATS.map(chat => (
-                        <SidebarItem
-                            key={chat.id}
-                            chat={chat}
-                            isSelected={selectedChatId === chat.id}
-                            onClick={() => handleChatSelect(chat.id)}
-                        />
-                    ))}
+                    {isLoadingChats ? (
+                        <div className="flex justify-center p-4">Loading...</div>
+                    ) : chats.length === 0 ? (
+                        <div className="flex justify-center p-4 text-gray-500">No chats found</div>
+                    ) : (
+                        chats.map(chat => (
+                            <SidebarItem
+                                key={chat.id}
+                                chat={chat}
+                                isSelected={selectedChatId === chat.id}
+                                onClick={() => handleChatSelect(chat.id)}
+                            />
+                        ))
+                    )}
                 </div>
             </div>
 
-            {/* Chat Area - Visible if chat selected */}
+            {/* Chat Area */}
             {selectedChatId ? (
                 <div className={cn(
                     "flex flex-col bg-[#87A985] bg-opacity-20 bg-[url('https://web.telegram.org/img/bg_0.png')] w-full",
-                    isSidebarOpen && "hidden md:flex" // Hide on mobile if sidebar is open
+                    isSidebarOpen && "hidden md:flex"
                 )}>
                     {/* Chat Header */}
                     <div className="flex items-center justify-between bg-white px-4 py-2 border-b border-gray-200">
                         <div className="flex items-center gap-3">
-                            {/* Back Button (Mobile) */}
                             <button
                                 className="md:hidden text-gray-500 mr-2"
                                 onClick={() => setIsSidebarOpen(true)}
@@ -185,8 +144,8 @@ const HomePage = () => {
                                 </svg>
                             </button>
                             <div className="flex flex-col">
-                                <h3 className="font-semibold">Telegram</h3>
-                                <span className="text-xs text-blue-500">Service notifications</span>
+                                <h3 className="font-semibold">{selectedChat?.name || 'Chat'}</h3>
+                                <span className="text-xs text-blue-500">{selectedChat?.isOnline ? 'Online' : 'Offline'}</span>
                             </div>
                         </div>
                         <div className="flex items-center gap-4 text-gray-500">
@@ -198,9 +157,13 @@ const HomePage = () => {
 
                     {/* Messages Area */}
                     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
-                        {MOCK_MESSAGES.map(msg => (
-                            <MessageBubble key={msg.id} message={msg} />
-                        ))}
+                        {isLoadingMessages ? (
+                            <div className="flex justify-center p-4">Loading messages...</div>
+                        ) : (
+                            messages.map(msg => (
+                                <MessageBubble key={msg.id} message={msg} />
+                            ))
+                        )}
                     </div>
 
                     {/* Input Area */}
@@ -211,13 +174,18 @@ const HomePage = () => {
                         <input
                             type="text"
                             placeholder="Message"
+                            value={messageInput}
+                            onChange={(e) => setMessageInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                             className="flex-1 py-2 bg-transparent focus:outline-none resize-none"
                         />
                         <button className="text-gray-500 hover:text-gray-700 p-2">
                             <Paperclip className="h-6 w-6" />
                         </button>
-                        {/* Mic shows if empty, Send shows if typing. For mock, just show Mic */}
-                        <button className="text-[#2AABEE] hover:text-[#229ED9] p-2">
+                        <button
+                            onClick={handleSendMessage}
+                            className={cn("p-2", messageInput.trim() ? "text-[#2AABEE] hover:text-[#229ED9]" : "text-gray-400")}
+                        >
                             <Mic className="h-6 w-6" />
                         </button>
                     </div>
