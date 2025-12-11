@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import {
     Search, MoreVertical, Paperclip,
-    Smile, Mic, Phone
+    Smile, Mic, Phone, Send
 } from 'lucide-react';
 import { cn } from '../components/ui';
 import { SidebarItem } from '../components/chat/SidebarItem';
 import { MessageBubble } from '../components/chat/MessageBubble';
 import { UserMenu } from '../components/chat/UserMenu';
-import type { Chat, Message } from '../types';
 import { chatService } from '../services/chatService';
+import { userService } from '../services/userService';
+import { webSocketService } from '../services/websocketService';
 import { useAuth } from '../contexts/AuthContext';
+import type { Chat, Message, User } from '../types';
 
 const HomePage = () => {
     const { user } = useAuth();
@@ -20,6 +22,12 @@ const HomePage = () => {
     const [messageInput, setMessageInput] = useState('');
     const [isLoadingChats, setIsLoadingChats] = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+    // Search state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<User[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showSearchResults, setShowSearchResults] = useState(false);
 
     // Fetch chats on mount
     useEffect(() => {
@@ -60,11 +68,108 @@ const HomePage = () => {
 
         fetchMessages();
 
-        // Polling for new messages (simple real-time simulation)
-        const interval = setInterval(fetchMessages, 3000);
-        return () => clearInterval(interval);
-
     }, [selectedChatId, user?.id]);
+
+    // WebSocket Connection & Real-time Updates
+    useEffect(() => {
+        if (!user) return;
+
+        // Connect to WebSocket
+        const token = localStorage.getItem('token'); // Or however we get the token strictly
+        if (token) {
+            webSocketService.connect(token);
+        }
+
+        // Handle incoming messages
+        const removeListener = webSocketService.addMessageHandler((msg: Message) => {
+            // Recompute isIncoming based on current user
+            const isIncoming = msg.senderId !== user.id;
+            const processedMsg = { ...msg, isIncoming };
+
+            // 1. Update Messages Area if chat is open
+            if (selectedChatId === msg.chatId) {
+                setMessages(prev => {
+                    // Deduplicate based on ID
+                    if (prev.some(m => m.id === msg.id)) {
+                        return prev;
+                    }
+                    return [...prev, processedMsg];
+                });
+            }
+
+            // 2. Update Chat List (Sidebar)
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === msg.chatId);
+                if (chatIndex === -1) {
+                    // Start new chat scenario: Ideally fetch chat details or partial update
+                    // For now, if chat not in list, we might need to fetch it or ignore
+                    // A simple fetch logic could be triggered here if needed.
+                    // Let's just ignore for now or move to top if found.
+                    return prevChats;
+                }
+
+                const updatedChat = {
+                    ...prevChats[chatIndex],
+                    lastMessage: processedMsg.text,
+                    time: processedMsg.time,
+                    unreadCount: (selectedChatId !== msg.chatId) ? (prevChats[chatIndex].unreadCount || 0) + 1 : 0
+                };
+
+                // Move to top
+                const newChats = [...prevChats];
+                newChats.splice(chatIndex, 1);
+                return [updatedChat, ...newChats];
+            });
+        });
+
+        return () => {
+            removeListener();
+            webSocketService.disconnect();
+        };
+    }, [user, selectedChatId]); // Re-run if user changes. selectedChatId dependency strictly not needed for listener definition but safe.
+
+    // Search users
+    // Search users (and suggestions)
+    useEffect(() => {
+        const searchUsers = async () => {
+            setIsSearching(true);
+            try {
+                const results = await userService.searchUsers(searchQuery);
+                setSearchResults(results);
+            } catch (error) {
+                console.error("Failed to search users:", error);
+            } finally {
+                setIsSearching(false);
+            }
+        };
+
+        const timeoutId = setTimeout(searchUsers, 500);
+        return () => clearTimeout(timeoutId);
+    }, [searchQuery]);
+
+    const handleUserSelect = async (selectedUser: User) => {
+        // Close search results
+        setShowSearchResults(false);
+        setSearchQuery('');
+
+        try {
+            // Check if chat already exists
+            const existingChat = chats.find(c =>
+                !c.isGroup && c.participants?.some(p => p.id === selectedUser.id)
+            );
+
+            if (existingChat) {
+                handleChatSelect(existingChat.id);
+            } else {
+                // Create new chat
+                const newChat = await chatService.createChat(selectedUser.id);
+                setChats(prev => [newChat, ...prev]);
+                handleChatSelect(newChat.id);
+            }
+        } catch (error) {
+            console.error("Failed to start chat:", error);
+        }
+    };
 
     const handleChatSelect = (id: string) => {
         setSelectedChatId(id);
@@ -77,8 +182,8 @@ const HomePage = () => {
         if (!messageInput.trim() || !selectedChatId) return;
 
         try {
-            const newMessage = await chatService.sendMessage(selectedChatId, messageInput);
-            setMessages(prev => [...prev, newMessage]);
+            await chatService.sendMessage(selectedChatId, messageInput);
+            // setMessages handled by WebSocket listener
             setMessageInput('');
         } catch (error) {
             console.error("Failed to send message:", error);
@@ -102,8 +207,51 @@ const HomePage = () => {
                         <input
                             type="text"
                             placeholder="Search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onFocus={() => setShowSearchResults(true)}
+                            onBlur={() => setTimeout(() => setShowSearchResults(false), 200)} // Delay to allow click
                             className="w-full rounded-full bg-gray-100 py-2 pl-10 pr-4 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#2AABEE]"
                         />
+
+                        {/* Search Results Dropdown */}
+                        {showSearchResults && (
+                            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-100 z-50 max-h-64 overflow-y-auto">
+                                {!searchQuery && searchResults.length > 0 && (
+                                    <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-100">
+                                        Suggested Users
+                                    </div>
+                                )}
+
+                                {isSearching ? (
+                                    <div className="p-4 text-center text-gray-500 text-sm">Searching...</div>
+                                ) : searchResults.length > 0 ? (
+                                    searchResults.map(result => (
+                                        <div
+                                            key={result.id}
+                                            onMouseDown={(e) => e.preventDefault()} // Prevent blur before click
+                                            onClick={() => handleUserSelect(result)}
+                                            className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                                        >
+                                            <div className="w-8 h-8 rounded-full bg-[#2AABEE] text-white flex items-center justify-center text-sm font-medium">
+                                                {result.avatar ? (
+                                                    <img src={result.avatar} alt={result.username} className="w-full h-full rounded-full object-cover" />
+                                                ) : (
+                                                    result.username.charAt(0).toUpperCase()
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-gray-900">{result.username}</span>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : searchQuery ? (
+                                    <div className="p-4 text-center text-gray-500 text-sm">User not found</div>
+                                ) : (
+                                    <div className="p-4 text-center text-gray-500 text-sm">No users available</div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -182,12 +330,18 @@ const HomePage = () => {
                         <button className="text-gray-500 hover:text-gray-700 p-2">
                             <Paperclip className="h-6 w-6" />
                         </button>
-                        <button
-                            onClick={handleSendMessage}
-                            className={cn("p-2", messageInput.trim() ? "text-[#2AABEE] hover:text-[#229ED9]" : "text-gray-400")}
-                        >
-                            <Mic className="h-6 w-6" />
-                        </button>
+                        {messageInput.trim() ? (
+                            <button
+                                onClick={handleSendMessage}
+                                className="p-2 text-[#2AABEE] hover:text-[#229ED9] transition-colors"
+                            >
+                                <Send className="h-6 w-6" />
+                            </button>
+                        ) : (
+                            <button className="p-2 text-gray-400 hover:text-gray-600">
+                                <Mic className="h-6 w-6" />
+                            </button>
+                        )}
                     </div>
                 </div>
             ) : (

@@ -12,11 +12,11 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class MessageType(str, enum.Enum):
     """Message type enum."""
-    TEXT = "text"
-    IMAGE = "image"
-    VIDEO = "video"
-    FILE = "file"
-    SYSTEM = "system"
+    text = "text"
+    image = "image"
+    video = "video"
+    file = "file"
+    system = "system"
 
 
 class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -36,7 +36,7 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[MessageType] = mapped_column(
         Enum(MessageType, name="message_type_enum", create_type=False),
-        default=MessageType.TEXT,
+        default=MessageType.text,
     )
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     

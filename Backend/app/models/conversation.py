@@ -13,8 +13,8 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class UserRole(str, enum.Enum):
     """User role in conversation."""
-    ADMIN = "admin"
-    MEMBER = "member"
+    admin = "admin"
+    member = "member"
 
 
 class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -66,7 +66,7 @@ class ConversationParticipant(Base):
     )
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role_enum", create_type=False),
-        default=UserRole.MEMBER,
+        default=UserRole.member,
     )
     joined_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     last_read_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)

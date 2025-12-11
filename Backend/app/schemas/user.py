@@ -28,5 +28,12 @@ class UserInDB(UserBase):
         from_attributes = True
 
 
+
+class UserPublic(UserBase):
+    id: UUID
+    
+    class Config:
+        from_attributes = True
+
 class User(UserInDB):
     pass
