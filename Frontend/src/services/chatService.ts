@@ -20,5 +20,9 @@ export const chatService = {
     createChat: async (participantId: string): Promise<Chat> => {
         const response = await api.post('/chats', { participantId });
         return response.data;
+    },
+
+    markAsRead: async (chatId: string): Promise<void> => {
+        await api.post(`/chats/${chatId}/read`);
     }
 };

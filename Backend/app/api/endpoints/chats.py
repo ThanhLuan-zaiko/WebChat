@@ -17,7 +17,6 @@ from jose import jwt, JWTError
 from pydantic import ValidationError
 from app.schemas import TokenPayload
 
-
 router = APIRouter()
 
 class ConnectionManager:
@@ -79,9 +78,6 @@ async def websocket_endpoint(
     await manager.connect(websocket, user_id)
     try:
         while True:
-            # Keep connection alive
-            # We can also handle receiving messages here if we wanted full bidirectional, 
-            # but current plan is HTTP POST -> Broadcast via WS
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
@@ -214,6 +210,88 @@ async def send_message(
     return msg_dict
 
 
+@router.get("/{chat_id}/messages", response_model=List[dict])
+async def get_messages(
+    chat_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Get all messages for a specific chat.
+    """
+    # 1. Verify chat exists and user is participant
+    stmt = select(Conversation).where(Conversation.id == chat_id).options(
+        selectinload(Conversation.participants)
+    )
+    result = await db.execute(stmt)
+    chat = result.scalars().first()
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+        
+    is_participant = any(p.user_id == current_user.id for p in chat.participants)
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant")
+
+    # 2. Fetch messages
+    stmt = select(Message).where(
+        Message.conversation_id == chat_id
+    ).order_by(
+        Message.created_at.asc()  # Oldest to newest
+    ).options(
+        selectinload(Message.sender)
+    )
+    
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    
+    # 3. Map to frontend format
+    messages_dto = []
+    for msg in messages:
+        messages_dto.append({
+            "id": str(msg.id),
+            "chatId": str(chat_id),
+            "senderId": str(msg.sender_id) if msg.sender_id else None,
+            "text": msg.content,
+            "time": msg.created_at.strftime("%H:%M"),
+            "senderName": msg.sender.username if msg.sender else "System",
+            "isIncoming": msg.sender_id != current_user.id if msg.sender_id else False
+        })
+    
+    return messages_dto
+
+
+@router.post("/{chat_id}/read", response_model=dict)
+async def mark_chat_as_read(
+    chat_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Mark a chat as read by updating last_read_at timestamp.
+    """
+    # Verify chat exists and user is participant
+    stmt = select(ConversationParticipant).where(
+        and_(
+            ConversationParticipant.conversation_id == chat_id,
+            ConversationParticipant.user_id == current_user.id
+        )
+    )
+    result = await db.execute(stmt)
+    participant = result.scalars().first()
+    
+    if not participant:
+        raise HTTPException(status_code=404, detail="Chat not found or not a participant")
+    
+    # Update last_read_at to current time
+    from datetime import datetime
+    participant.last_read_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    return {"status": "success", "message": "Chat marked as read"}
+
+
 @router.get("", response_model=List[Chat])
 async def get_chats(
     current_user: Annotated[User, Depends(deps.get_current_user)],
@@ -234,13 +312,6 @@ async def get_chats(
             selectinload(Message.sender)
         ) # Warning: optimized loading needed for production to avoid loading ALL messages
     )
-    
-    # Optimization: limit messages loaded or fetch separately if performance issue
-    # For now, let's just fetch everything and limit in app logic if needed, 
-    # but `selectinload(Conversation.messages)` might pull too much history.
-    # Better approach: Fetch conversations, then for each fetch last message.
-    # Or rely on a separate field/query. 
-    # Provided code is simple; let's stick to it but be mindful.
     
     result = await db.execute(stmt)
     conversations = result.scalars().all()
@@ -285,6 +356,19 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
             last_msg = last_m.content
             time = last_m.created_at.strftime("%H:%M") # Format?
     
+    # Calculate unread count
+    current_participant = next((p for p in conv.participants if p.user_id == current_user_id), None)
+    unread_count = 0
+    if current_participant:
+        # Count messages that are:
+        # 1. Created after user's last_read_at
+        # 2. Not sent by current user (incoming only)
+        unread_count = sum(
+            1 for msg in conv.messages
+            if msg.created_at > current_participant.last_read_at
+            and msg.sender_id != current_user_id
+        )
+    
     return Chat(
         id=conv.id,
         name=name,
@@ -292,6 +376,6 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
         participants=participants_dto,
         last_message=last_msg,
         time=time,
-        unreadCount=0 # Logic to count unread
+        unreadCount=unread_count
     )
 

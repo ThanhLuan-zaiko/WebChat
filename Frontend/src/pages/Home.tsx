@@ -18,6 +18,7 @@ const HomePage = () => {
     const [chats, setChats] = useState<Chat[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [selectedUserForNewChat, setSelectedUserForNewChat] = useState<User | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [messageInput, setMessageInput] = useState('');
     const [isLoadingChats, setIsLoadingChats] = useState(false);
@@ -101,10 +102,12 @@ const HomePage = () => {
             setChats(prevChats => {
                 const chatIndex = prevChats.findIndex(c => c.id === msg.chatId);
                 if (chatIndex === -1) {
-                    // Start new chat scenario: Ideally fetch chat details or partial update
-                    // For now, if chat not in list, we might need to fetch it or ignore
-                    // A simple fetch logic could be triggered here if needed.
-                    // Let's just ignore for now or move to top if found.
+                    // Chat not in list - fetch it from backend
+                    chatService.getChats().then(updatedChats => {
+                        setChats(updatedChats);
+                    }).catch(error => {
+                        console.error("Failed to fetch updated chats:", error);
+                    });
                     return prevChats;
                 }
 
@@ -112,7 +115,12 @@ const HomePage = () => {
                     ...prevChats[chatIndex],
                     lastMessage: processedMsg.text,
                     time: processedMsg.time,
-                    unreadCount: (selectedChatId !== msg.chatId) ? (prevChats[chatIndex].unreadCount || 0) + 1 : 0
+                    // Only increase unread count if:
+                    // 1. Message is incoming (from someone else)
+                    // 2. Chat is NOT currently open
+                    unreadCount: (isIncoming && selectedChatId !== msg.chatId)
+                        ? (prevChats[chatIndex].unreadCount || 0) + 1
+                        : (selectedChatId === msg.chatId ? 0 : prevChats[chatIndex].unreadCount || 0)
                 };
 
                 // Move to top
@@ -161,10 +169,13 @@ const HomePage = () => {
             if (existingChat) {
                 handleChatSelect(existingChat.id);
             } else {
-                // Create new chat
-                const newChat = await chatService.createChat(selectedUser.id);
-                setChats(prev => [newChat, ...prev]);
-                handleChatSelect(newChat.id);
+                // Don't create chat yet - wait until first message is sent
+                setSelectedChatId(null);
+                setSelectedUserForNewChat(selectedUser);
+                setMessages([]);
+                if (window.innerWidth < 768) {
+                    setIsSidebarOpen(false);
+                }
             }
         } catch (error) {
             console.error("Failed to start chat:", error);
@@ -173,16 +184,45 @@ const HomePage = () => {
 
     const handleChatSelect = (id: string) => {
         setSelectedChatId(id);
+        setSelectedUserForNewChat(null);
+
+        // Call backend to mark as read (update last_read_at)
+        chatService.markAsRead(id).catch(error => {
+            console.error("Failed to mark chat as read:", error);
+        });
+
+        // Reset unread count locally
+        setChats(prevChats =>
+            prevChats.map(chat =>
+                chat.id === id ? { ...chat, unreadCount: 0 } : chat
+            )
+        );
+
         if (window.innerWidth < 768) {
             setIsSidebarOpen(false);
         }
     };
 
     const handleSendMessage = async () => {
-        if (!messageInput.trim() || !selectedChatId) return;
+        if (!messageInput.trim()) return;
 
         try {
-            await chatService.sendMessage(selectedChatId, messageInput);
+            // If this is a new chat (no ID yet), create it first
+            if (selectedUserForNewChat && !selectedChatId) {
+                const newChat = await chatService.createChat(selectedUserForNewChat.id);
+                setChats(prev => [newChat, ...prev]);
+                setSelectedChatId(newChat.id);
+                setSelectedUserForNewChat(null);
+
+                // Send message to the newly created chat
+                await chatService.sendMessage(newChat.id, messageInput);
+            } else if (selectedChatId) {
+                // Normal flow: send message to existing chat
+                await chatService.sendMessage(selectedChatId, messageInput);
+            } else {
+                return; // No chat selected and no new user
+            }
+
             // setMessages handled by WebSocket listener
             setMessageInput('');
         } catch (error) {
@@ -191,13 +231,14 @@ const HomePage = () => {
     };
 
     const selectedChat = chats.find(c => c.id === selectedChatId);
+    const displayName = selectedChat?.name || selectedUserForNewChat?.username || 'Chat';
 
     return (
         <div className="flex h-screen overflow-hidden bg-white">
             {/* Sidebar */}
             <div className={cn(
                 "flex flex-col border-r border-gray-200 bg-white transition-all duration-300 ease-in-out md:w-80 lg:w-96",
-                selectedChatId && !isSidebarOpen ? "hidden md:flex" : "w-full flex"
+                (selectedChatId || selectedUserForNewChat) && !isSidebarOpen ? "hidden md:flex" : "w-full flex"
             )}>
                 {/* Sidebar Header */}
                 <div className="flex items-center gap-4 px-4 py-3">
@@ -275,7 +316,7 @@ const HomePage = () => {
             </div>
 
             {/* Chat Area */}
-            {selectedChatId ? (
+            {(selectedChatId || selectedUserForNewChat) ? (
                 <div className={cn(
                     "flex flex-col bg-[#87A985] bg-opacity-20 bg-[url('https://web.telegram.org/img/bg_0.png')] w-full",
                     isSidebarOpen && "hidden md:flex"
@@ -292,7 +333,7 @@ const HomePage = () => {
                                 </svg>
                             </button>
                             <div className="flex flex-col">
-                                <h3 className="font-semibold">{selectedChat?.name || 'Chat'}</h3>
+                                <h3 className="font-semibold">{displayName}</h3>
                                 <span className="text-xs text-blue-500">{selectedChat?.isOnline ? 'Online' : 'Offline'}</span>
                             </div>
                         </div>
