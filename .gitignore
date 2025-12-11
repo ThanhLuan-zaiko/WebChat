@@ -7,6 +7,9 @@
 # Backend
 /Backend/.venv
 /Backend/__pycache__/
+/Backend/instance
+/Backend/logs
+/Backend/uploads
 *.py[cod]
 
 # General

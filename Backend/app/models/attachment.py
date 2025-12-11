@@ -3,7 +3,7 @@ Attachment model.
 """
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text
+from sqlalchemy import BigInteger, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
@@ -21,8 +21,8 @@ class Attachment(Base, UUIDPrimaryKeyMixin):
         nullable=False,
     )
     file_url: Mapped[str] = mapped_column(Text, nullable=False)
-    file_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.now(),

@@ -88,9 +88,19 @@ export const useChat = (user: User | null) => {
                     return prevChats;
                 }
 
+                // Build last message preview
+                let lastMessageText = processedMsg.text;
+                if (!lastMessageText && processedMsg.attachments && processedMsg.attachments.length > 0) {
+                    // Check if all attachments are images
+                    const allImages = processedMsg.attachments.every(
+                        att => att.fileType && att.fileType.startsWith('image/')
+                    );
+                    lastMessageText = allImages ? "📷 Image" : "📎 File";
+                }
+
                 const updatedChat = {
                     ...prevChats[chatIndex],
-                    lastMessage: processedMsg.text,
+                    lastMessage: lastMessageText,
                     time: processedMsg.time,
                     // Only increase unread count if:
                     // 1. Message is incoming (from someone else)
@@ -130,8 +140,8 @@ export const useChat = (user: User | null) => {
         );
     };
 
-    const handleSendMessage = async () => {
-        if (!messageInput.trim()) return;
+    const handleSendMessage = async (files?: File[]) => {
+        if (!messageInput.trim() && (!files || files.length === 0)) return;
 
         try {
             // If this is a new chat (no ID yet), create it first
@@ -142,10 +152,10 @@ export const useChat = (user: User | null) => {
                 setSelectedUserForNewChat(null);
 
                 // Send message to the newly created chat
-                await chatService.sendMessage(newChat.id, messageInput);
+                await chatService.sendMessage(newChat.id, messageInput, files);
             } else if (selectedChatId) {
                 // Normal flow: send message to existing chat
-                await chatService.sendMessage(selectedChatId, messageInput);
+                await chatService.sendMessage(selectedChatId, messageInput, files);
             } else {
                 return; // No chat selected and no new user
             }

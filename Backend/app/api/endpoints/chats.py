@@ -4,7 +4,7 @@ Chat endpoints.
 from typing import Annotated, Any, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, UploadFile, File
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -156,10 +156,18 @@ async def create_chat(
 @router.post("/{chat_id}/messages", response_model=Any)
 async def send_message(
     chat_id: UUID,
-    message_in: Annotated[dict, Any], # TODO: proper schema
     current_user: Annotated[User, Depends(deps.get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    text: Annotated[str | None, Query()] = None,
+    files: List[UploadFile] = File(default=[]),
 ) -> Any:
+    """Send a message with optional file attachments."""
+    from fastapi import UploadFile, File, Form
+    from pathlib import Path
+    import uuid
+    import aiofiles
+    from app.models import Attachment
+    
     # 1. Verify chat exists and user is participant
     stmt = select(Conversation).where(Conversation.id == chat_id).options(
         selectinload(Conversation.participants)
@@ -174,21 +182,74 @@ async def send_message(
     if not is_participant:
         raise HTTPException(status_code=403, detail="Not a participant")
 
-    # 2. Create message
-    content = message_in.get("text")
-    if not content:
-        raise HTTPException(status_code=400, detail="Content required")
+    # Validate that we have either text or files
+    if not text and not files:
+        raise HTTPException(status_code=400, detail="Message must have text or attachments")
+    
+    # Determine message type
+    message_type = MessageType.text
+    if files:
+        # Check if all files are images
+        image_types = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+        all_images = all(
+            getattr(f, "content_type", "").lower() in image_types 
+            for f in files if hasattr(f, "content_type")
+        )
+        message_type = MessageType.image if all_images else MessageType.file
         
+    # 2. Create message
     new_message = Message(
         conversation_id=chat_id,
         sender_id=current_user.id,
-        content=content,
-        type=MessageType.text
+        content=text,
+        type=message_type
     )
     db.add(new_message)
+    await db.flush()  # Get message ID
     
-    # 3. Update conversation timestamp
-    # chat.last_message_at = func.now() # Handled by DB trigger usually
+    # 3. Handle file uploads
+    upload_base_dir = Path(__file__).parent.parent.parent.parent / "uploads"
+    chat_upload_dir = upload_base_dir / str(chat_id)
+    chat_upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    attachments_data = []
+    for file in files:
+        if not hasattr(file, "filename"):
+            continue
+            
+        # Check file size (10MB limit)
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset
+        
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            raise HTTPException(status_code=400, detail=f"File {file.filename} exceeds 10MB limit")
+        
+        # Generate unique filename
+        file_ext = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = chat_upload_dir / unique_filename
+        
+        # Save file
+        async with aiofiles.open(file_path, 'wb') as f:
+            content = await file.read()
+            await f.write(content)
+        
+        # Create attachment record with chat-specific path
+        attachment = Attachment(
+            message_id=new_message.id,
+            file_url=f"/uploads/{chat_id}/{unique_filename}",
+            file_type=getattr(file, "content_type", None),
+            file_name=file.filename,
+            file_size=file_size
+        )
+        db.add(attachment)
+        attachments_data.append({
+            "fileUrl": f"/uploads/{chat_id}/{unique_filename}",
+            "fileType": attachment.file_type,
+            "fileName": attachment.file_name,
+            "fileSize": attachment.file_size
+        })
     
     await db.commit()
     await db.refresh(new_message)
@@ -198,10 +259,10 @@ async def send_message(
         "id": str(new_message.id),
         "chatId": str(chat_id),
         "senderId": str(current_user.id),
-        "text": content,
+        "text": text or "",
         "time": new_message.created_at.strftime("%H:%M"),
         "senderName": current_user.username,
-        "senderName": current_user.username
+        "attachments": attachments_data
     }
     
     for p in chat.participants:
@@ -239,7 +300,8 @@ async def get_messages(
     ).order_by(
         Message.created_at.asc()  # Oldest to newest
     ).options(
-        selectinload(Message.sender)
+        selectinload(Message.sender),
+        selectinload(Message.attachments)
     )
     
     result = await db.execute(stmt)
@@ -248,6 +310,17 @@ async def get_messages(
     # 3. Map to frontend format
     messages_dto = []
     for msg in messages:
+        attachments_data = [
+            {
+                "id": str(att.id),
+                "fileUrl": att.file_url,
+                "fileType": att.file_type,
+                "fileName": att.file_name,
+                "fileSize": att.file_size
+            }
+            for att in msg.attachments
+        ]
+        
         messages_dto.append({
             "id": str(msg.id),
             "chatId": str(chat_id),
@@ -255,7 +328,8 @@ async def get_messages(
             "text": msg.content,
             "time": msg.created_at.strftime("%H:%M"),
             "senderName": msg.sender.username if msg.sender else "System",
-            "isIncoming": msg.sender_id != current_user.id if msg.sender_id else False
+            "isIncoming": msg.sender_id != current_user.id if msg.sender_id else False,
+            "attachments": attachments_data
         })
     
     return messages_dto
@@ -309,7 +383,8 @@ async def get_chats(
     ).options(
         selectinload(Conversation.participants).selectinload(ConversationParticipant.user),
         selectinload(Conversation.messages).options(
-            selectinload(Message.sender)
+            selectinload(Message.sender),
+            selectinload(Message.attachments)
         ) # Warning: optimized loading needed for production to avoid loading ALL messages
     )
     
@@ -353,8 +428,25 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
         sorted_msgs = sorted(conv.messages, key=lambda m: m.created_at, reverse=True)
         if sorted_msgs:
             last_m = sorted_msgs[0]
-            last_msg = last_m.content
-            time = last_m.created_at.strftime("%H:%M") # Format?
+            
+            # Build last message preview
+            if last_m.content:
+                last_msg = last_m.content
+            elif last_m.attachments:
+                # Check actual attachments content
+                all_images = all(
+                    a.file_type and a.file_type.startswith("image/") 
+                    for a in last_m.attachments
+                )
+                last_msg = "📷 Image" if all_images else "📎 File"
+            elif last_m.type == MessageType.image:
+                last_msg = "📷 Image"
+            elif last_m.type == MessageType.file:
+                last_msg = "📎 File"
+            else:
+                last_msg = "Attachment"
+            
+            time = last_m.created_at.strftime("%H:%M")
     
     # Calculate unread count
     current_participant = next((p for p in conv.participants if p.user_id == current_user_id), None)

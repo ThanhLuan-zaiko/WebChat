@@ -17,6 +17,14 @@ export interface Chat {
     participants?: User[];
 }
 
+export interface Attachment {
+    id?: string;
+    fileUrl: string;
+    fileType: string | null;
+    fileName: string | null;
+    fileSize: number | null;
+}
+
 export interface Message {
     id: string;
     chatId: string;
@@ -26,4 +34,5 @@ export interface Message {
     isIncoming: boolean; // Computed on frontend based on current user
     isRead?: boolean;
     senderName?: string; // For groups
+    attachments?: Attachment[];
 }

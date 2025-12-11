@@ -97,8 +97,8 @@ docker exec -i $CONTAINER_NAME psql -U $NEW_DB_USER -d $NEW_DB_NAME <<EOF
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
         file_url TEXT NOT NULL,
-        file_type VARCHAR(50),
-        file_name VARCHAR(255),
+        file_type TEXT,
+        file_name TEXT,
         file_size BIGINT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );

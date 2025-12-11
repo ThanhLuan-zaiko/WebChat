@@ -12,8 +12,24 @@ export const chatService = {
         return response.data;
     },
 
-    sendMessage: async (chatId: string, text: string): Promise<Message> => {
-        const response = await api.post(`/chats/${chatId}/messages`, { text });
+    sendMessage: async (chatId: string, text: string, files?: File[]): Promise<Message> => {
+        const formData = new FormData();
+
+        if (text) {
+            formData.append('text', text);
+        }
+
+        if (files && files.length > 0) {
+            files.forEach(file => {
+                formData.append('files', file);
+            });
+        }
+
+        const response = await api.post(`/chats/${chatId}/messages?text=${encodeURIComponent(text || '')}`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
         return response.data;
     },
 
