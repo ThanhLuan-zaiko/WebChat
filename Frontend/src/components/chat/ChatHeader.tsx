@@ -1,0 +1,117 @@
+import { useRef, useState, useEffect } from 'react';
+import { Search, MoreVertical, Phone } from 'lucide-react';
+import type { Chat } from '../../types';
+
+interface ChatHeaderProps {
+    chat: Chat;
+    displayName: string;
+    onBackClick: () => void;
+    isSearching: boolean;
+    setIsSearching: (value: boolean) => void;
+    searchQuery: string;
+    onSearchChange: (value: string) => void;
+    otherParticipant: { id: string } | undefined;
+    isBlocked: boolean;
+    onBlockUser: () => void; // Opens modal in parent
+    onUnblockUser: (userId: string) => void;
+}
+
+export const ChatHeader = ({
+    chat,
+    displayName,
+    onBackClick,
+    isSearching,
+    setIsSearching,
+    searchQuery,
+    onSearchChange,
+    otherParticipant,
+    isBlocked,
+    onBlockUser,
+    onUnblockUser
+}: ChatHeaderProps) => {
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    // Handle clicks outside for menu
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isMenuOpen]);
+
+    const handleBlockAction = () => {
+        if (!otherParticipant) return;
+        if (isBlocked) {
+            onUnblockUser(otherParticipant.id);
+        } else {
+            onBlockUser();
+        }
+        setIsMenuOpen(false);
+    };
+
+    return (
+        <div className="flex items-center justify-between bg-white px-4 py-2 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+                <button className="md:hidden text-gray-500 mr-2" onClick={onBackClick}>
+                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                </button>
+                <div className="flex flex-col">
+                    <h3 className="font-semibold">{displayName}</h3>
+                    <span className="text-xs text-blue-500">{chat.isOnline ? 'Online' : 'Offline'}</span>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4 text-gray-500">
+                {isSearching ? (
+                    <div className="flex items-center bg-gray-100 rounded-full px-3 py-1 animate-in fade-in slide-in-from-right-5">
+                        <input
+                            autoFocus
+                            type="text"
+                            placeholder="Search..."
+                            value={searchQuery}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            className="bg-transparent border-none outline-none text-sm w-32 md:w-48 text-gray-700 placeholder-gray-400"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    setIsSearching(false);
+                                    onSearchChange('');
+                                }
+                            }}
+                        />
+                        <button onClick={() => { setIsSearching(false); onSearchChange(''); }} className="ml-2 hover:text-gray-700">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                ) : (
+                    <Search className="h-5 w-5 cursor-pointer hover:text-gray-700" onClick={() => setIsSearching(true)} />
+                )}
+                <Phone className="h-5 w-5 cursor-pointer hover:text-gray-700" />
+
+                {/* Menu with Click Toggle */}
+                <div className="relative" ref={menuRef}>
+                    <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="focus:outline-none">
+                        <MoreVertical className="h-5 w-5 cursor-pointer hover:text-gray-700" />
+                    </button>
+                    {isMenuOpen && otherParticipant && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-100 animate-in fade-in zoom-in-95 duration-100">
+                            <button
+                                onClick={handleBlockAction}
+                                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                            >
+                                {isBlocked ? "Unblock User" : "Block User"}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
