@@ -28,6 +28,9 @@ const HomePage = () => {
         messageSearchQuery,
         setMessageSearchQuery,
         searchResults: messageSearchResults,
+        blockedUsers,
+        handleBlockUser,
+        handleUnblockUser,
     } = useChat(user);
 
     const {
@@ -41,6 +44,16 @@ const HomePage = () => {
     } = useUserSearch(handleUserSelectFromChat);
 
     const displayName = selectedChat?.name || selectedUserForNewChat?.username || 'Chat';
+
+    const activeChat = selectedChat || (selectedUserForNewChat ? {
+        id: 'new',
+        name: selectedUserForNewChat.username,
+        avatar: selectedUserForNewChat.avatar,
+        participants: [selectedUserForNewChat],
+        isGroup: false,
+        unreadCount: 0,
+        isOnline: selectedUserForNewChat.isOnline
+    } as any : undefined);
 
     const handleBackClick = () => {
         setIsSidebarOpen(true);
@@ -76,7 +89,7 @@ const HomePage = () => {
 
             {(selectedChatId || selectedUserForNewChat) ? (
                 <ChatArea
-                    chat={selectedChat}
+                    chat={activeChat}
                     displayName={displayName}
                     messages={messages}
                     messageInput={messageInput}
@@ -89,6 +102,10 @@ const HomePage = () => {
                     isLoadingMessages={isLoadingMessages}
                     isSidebarOpen={isSidebarOpen}
                     onBackClick={handleBackClick}
+                    blockedUsers={blockedUsers}
+                    onBlockUser={handleBlockUser}
+                    onUnblockUser={handleUnblockUser}
+                    currentUserId={user?.id}
                 />
             ) : (
                 <EmptyState />

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import get_db, security
-from app.models import Conversation, ConversationParticipant, User, Message, MessageType
+from app.models import Conversation, ConversationParticipant, User, Message, MessageType, UserBlock
 from app.schemas.conversation import ConversationCreate, Chat, ChatParticipant
 from app.api import deps
 from jose import jwt, JWTError
@@ -19,67 +19,7 @@ from app.schemas import TokenPayload
 
 router = APIRouter()
 
-class ConnectionManager:
-    def __init__(self):
-        # Map user_id to list of active websockets (user might have multiple tabs)
-        self.active_connections: dict[UUID, List[WebSocket]] = {}
-
-    async def connect(self, websocket: WebSocket, user_id: UUID):
-        await websocket.accept()
-        if user_id not in self.active_connections:
-            self.active_connections[user_id] = []
-        self.active_connections[user_id].append(websocket)
-        # Broadcast status change to Online
-        await self.broadcast_user_status(user_id, True)
-
-    def disconnect(self, websocket: WebSocket, user_id: UUID):
-        if user_id in self.active_connections:
-            if websocket in self.active_connections[user_id]:
-                self.active_connections[user_id].remove(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
-                pass 
-                
-    async def disconnect_async(self, websocket: WebSocket, user_id: UUID):
-        if user_id in self.active_connections:
-            if websocket in self.active_connections[user_id]:
-                self.active_connections[user_id].remove(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
-                await self.broadcast_user_status(user_id, False)
-
-    async def send_personal_message(self, message: dict, user_id: UUID):
-        if user_id in self.active_connections:
-            for connection in self.active_connections[user_id]:
-                try:
-                    await connection.send_json(message)
-                except Exception:
-                    # Connection might be closed
-                    continue
-
-    async def broadcast_user_status(self, user_id: UUID, is_online: bool):
-        """
-        Broadcast user status change to all connected users.
-        In a real production app, this should only go to friends/contacts.
-        For now, we broadcast to everyone for simplicity.
-        """
-        message = {
-            "type": "user_status_change",
-            "userId": str(user_id),
-            "isOnline": is_online
-        }
-        
-        # Iterate over all active connections
-        for uid, connections in self.active_connections.items():
-            if uid == user_id:
-                continue # Don't notify self
-            for connection in connections:
-                try:
-                    await connection.send_json(message)
-                except Exception:
-                    continue
-
-manager = ConnectionManager()
+from app.services.websocket import manager
 
 @router.websocket("/ws")
 async def websocket_endpoint(
@@ -215,6 +155,19 @@ async def send_message(
     is_participant = any(p.user_id == current_user.id for p in chat.participants)
     if not is_participant:
         raise HTTPException(status_code=403, detail="Not a participant")
+
+    # Check for blocks
+    # If I am blocked by any other participant, I cannot send message.
+    other_participants_ids = [p.user_id for p in chat.participants if p.user_id != current_user.id]
+    if other_participants_ids:
+        # Check if current_user is blocked BY them (blocker=them, blocked=me)
+        block_stmt = select(UserBlock).where(
+            UserBlock.blocker_id.in_(other_participants_ids),
+            UserBlock.blocked_id == current_user.id
+        )
+        block_result = await db.execute(block_stmt)
+        if block_result.first():
+            raise HTTPException(status_code=403, detail="You are blocked by this user")
 
     # Validate that we have either text or files
     if not text and not files:
@@ -485,14 +438,26 @@ async def get_chats(
     result = await db.execute(stmt)
     conversations = result.scalars().all()
     
-    return [_map_conversation_to_chat(c, current_user.id) for c in conversations]
+    # Pre-fetch "users who have blocked me"
+    # This is to set isBlockedBy flag
+    blocked_by_stmt = select(UserBlock.blocker_id).where(UserBlock.blocked_id == current_user.id)
+    blocked_by_result = await db.execute(blocked_by_stmt)
+    blocked_by_ids = set(str(uid) for uid in blocked_by_result.scalars().all())
+
+    return [_map_conversation_to_chat(c, current_user.id, blocked_by_ids) for c in conversations]
 
 
-def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat:
+def _map_conversation_to_chat(
+    conv: Conversation, 
+    current_user_id: UUID, 
+    blocked_by_ids: set[str] = set()
+) -> Chat:
     # Determine chat name and avatar (the other person)
     other_participants = [p for p in conv.participants if p.user_id != current_user_id]
     
     is_online = False
+    is_blocked_by = False
+    
     if conv.is_group:
         name = conv.name or "Group Chat"
         avatar = None # TODO: group avatar
@@ -503,6 +468,10 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
             avatar = other.avatar_url
             # Check online status using the global manager
             is_online = other.id in manager.active_connections
+            
+            # Check if I am blocked by this user
+            if str(other.id) in blocked_by_ids:
+                is_blocked_by = True
         else:
             name = "Unknown" # Should not happen in 1-on-1
             avatar = None
@@ -566,6 +535,7 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
         last_message=last_msg,
         time=time,
         unreadCount=unread_count,
-        isOnline=is_online
+        isOnline=is_online,
+        isBlockedBy=is_blocked_by
     )
 

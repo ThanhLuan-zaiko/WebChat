@@ -47,5 +47,18 @@ export const chatService = {
 
     deleteMessage: async (chatId: string, messageId: string): Promise<void> => {
         await api.delete(`/chats/${chatId}/messages/${messageId}`);
+    },
+
+    blockUser: async (userId: string): Promise<void> => {
+        await api.post(`/users/${userId}/block`);
+    },
+
+    unblockUser: async (userId: string): Promise<void> => {
+        await api.delete(`/users/${userId}/block`);
+    },
+
+    getBlockedUsers: async (): Promise<any[]> => {
+        const response = await api.get('/users/blocked');
+        return response.data;
     }
 };

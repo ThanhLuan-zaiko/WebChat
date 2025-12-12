@@ -42,6 +42,8 @@ class Chat(ConversationBase):
     last_message: str | None = None  # Frontend expects this
     unreadCount: int = 0
     time: str | None = None
+    isOnline: bool = False
+    isBlockedBy: bool = False
     
     class Config:
         from_attributes = True

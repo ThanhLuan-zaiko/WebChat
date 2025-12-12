@@ -14,16 +14,21 @@ export const useChat = (user: User | null) => {
     const [isLoadingChats, setIsLoadingChats] = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
     const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+    const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
 
     // Fetch chats on mount
     useEffect(() => {
         const fetchChats = async () => {
             try {
                 setIsLoadingChats(true);
-                const data = await chatService.getChats();
-                setChats(data);
+                const [chatsData, blockedData] = await Promise.all([
+                    chatService.getChats(),
+                    chatService.getBlockedUsers()
+                ]);
+                setChats(chatsData);
+                setBlockedUsers(blockedData.map((u: any) => u.id));
             } catch (error) {
-                console.error("Failed to fetch chats:", error);
+                console.error("Failed to fetch data:", error);
             } finally {
                 setIsLoadingChats(false);
             }
@@ -118,6 +123,33 @@ export const useChat = (user: User | null) => {
                     }
                     return chat;
                 }));
+                return;
+            }
+
+            // Handle block status update
+            if (msg.type === 'user_block_update') {
+                const { blockerId, blockedId, isBlocked } = msg;
+
+                // If I blocked someone (blockerId is me) -> Update blockedUsers list
+                if (blockerId === user.id) {
+                    if (isBlocked) {
+                        setBlockedUsers(prev => [...prev, blockedId]);
+                    } else {
+                        setBlockedUsers(prev => prev.filter(id => id !== blockedId));
+                    }
+                }
+
+                // If updated involves me (either I blocked someone or was blocked)
+                // We need to update the chat isBlockedBy state if I was blocked
+                if (blockedId === user.id) {
+                    setChats(prevChats => prevChats.map(chat => {
+                        const otherParticipant = chat.participants?.find(p => p.id === blockerId);
+                        if (otherParticipant) {
+                            return { ...chat, isBlockedBy: isBlocked };
+                        }
+                        return chat;
+                    }));
+                }
                 return;
             }
 
@@ -261,6 +293,24 @@ export const useChat = (user: User | null) => {
         }
     };
 
+    const handleBlockUser = async (userId: string) => {
+        try {
+            await chatService.blockUser(userId);
+            setBlockedUsers(prev => [...prev, userId]);
+        } catch (error) {
+            console.error("Failed to block user:", error);
+        }
+    };
+
+    const handleUnblockUser = async (userId: string) => {
+        try {
+            await chatService.unblockUser(userId);
+            setBlockedUsers(prev => prev.filter(id => id !== userId));
+        } catch (error) {
+            console.error("Failed to unblock user:", error);
+        }
+    };
+
     const selectedChat = chats.find(c => c.id === selectedChatId);
 
     return {
@@ -281,5 +331,8 @@ export const useChat = (user: User | null) => {
         setMessageSearchQuery,
         searchResults,
         isSearchingMessages,
+        blockedUsers,
+        handleBlockUser,
+        handleUnblockUser,
     };
 };

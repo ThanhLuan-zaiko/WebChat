@@ -14,6 +14,7 @@ export interface Chat {
     unreadCount?: number;
     isGroup?: boolean;
     isOnline?: boolean;
+    isBlockedBy?: boolean;
     participants?: User[];
 }
 

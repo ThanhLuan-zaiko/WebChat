@@ -2,7 +2,8 @@ from .attachment import Attachment
 from .base import Base
 from .conversation import Conversation, ConversationParticipant, UserRole
 from .message import Message, MessageType
-from .user import User
+from app.models.user import User
+from app.models.user_block import UserBlock
 
 __all__ = [
     "Base",
@@ -13,4 +14,5 @@ __all__ = [
     "Message",
     "MessageType",
     "Attachment",
+    "UserBlock",
 ]

@@ -52,9 +52,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database connection (called on startup)."""
-    # Test connection
+    # Import Base here to avoid circular imports and ensure all models are loaded
+    from app.models import Base
+    
+    # Create tables
     async with engine.begin() as conn:
-        await conn.run_sync(lambda _: None)
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

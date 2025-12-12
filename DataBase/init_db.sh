@@ -103,6 +103,15 @@ docker exec -i $CONTAINER_NAME psql -U $NEW_DB_USER -d $NEW_DB_NAME <<EOF
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE user_blocks (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_user_block_blocker_blocked UNIQUE (blocker_id, blocked_id)
+    );
+
     -- Indexes & Triggers
     CREATE INDEX idx_users_email ON users(email);
     CREATE INDEX idx_messages_conv_created ON messages(conversation_id, created_at DESC);
@@ -114,6 +123,7 @@ docker exec -i $CONTAINER_NAME psql -U $NEW_DB_USER -d $NEW_DB_NAME <<EOF
     CREATE TRIGGER update_users_modtime BEFORE UPDATE ON users FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
     CREATE TRIGGER update_conversations_modtime BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
     CREATE TRIGGER update_messages_modtime BEFORE UPDATE ON messages FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+    CREATE TRIGGER update_user_blocks_modtime BEFORE UPDATE ON user_blocks FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
     CREATE OR REPLACE FUNCTION update_conversation_timestamp() RETURNS TRIGGER AS \$\$
     BEGIN UPDATE conversations SET last_message_at = NEW.created_at WHERE id = NEW.conversation_id; RETURN NEW; END; \$\$ language 'plpgsql';
