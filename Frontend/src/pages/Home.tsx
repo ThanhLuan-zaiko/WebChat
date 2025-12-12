@@ -24,6 +24,10 @@ const HomePage = () => {
         handleChatSelect,
         handleSendMessage,
         handleUserSelect: handleUserSelectFromChat,
+        handleRecallMessage,
+        messageSearchQuery,
+        setMessageSearchQuery,
+        searchResults: messageSearchResults,
     } = useChat(user);
 
     const {
@@ -78,6 +82,10 @@ const HomePage = () => {
                     messageInput={messageInput}
                     onMessageInputChange={setMessageInput}
                     onSendMessage={handleSendMessage}
+                    onRecallMessage={handleRecallMessage}
+                    searchQuery={messageSearchQuery}
+                    onSearchChange={setMessageSearchQuery}
+                    searchResults={messageSearchResults}
                     isLoadingMessages={isLoadingMessages}
                     isSidebarOpen={isSidebarOpen}
                     onBackClick={handleBackClick}

@@ -9,8 +9,11 @@ export const useChat = (user: User | null) => {
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [selectedUserForNewChat, setSelectedUserForNewChat] = useState<User | null>(null);
     const [messageInput, setMessageInput] = useState('');
+    const [messageSearchQuery, setMessageSearchQuery] = useState(''); // New state for search
+    const [searchResults, setSearchResults] = useState<Message[]>([]); // Separated search results
     const [isLoadingChats, setIsLoadingChats] = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+    const [isSearchingMessages, setIsSearchingMessages] = useState(false);
 
     // Fetch chats on mount
     useEffect(() => {
@@ -36,6 +39,7 @@ export const useChat = (user: User | null) => {
         const fetchMessages = async () => {
             try {
                 setIsLoadingMessages(true);
+                // Always fetch full messages for the chat history
                 const data = await chatService.getMessages(selectedChatId);
                 setMessages(data);
             } catch (error) {
@@ -48,6 +52,32 @@ export const useChat = (user: User | null) => {
         fetchMessages();
     }, [selectedChatId, user?.id]);
 
+    // Search Messages Effect
+    useEffect(() => {
+        if (!selectedChatId || !messageSearchQuery.trim()) {
+            setSearchResults([]);
+            return;
+        }
+
+        const searchMessages = async () => {
+            try {
+                setIsSearchingMessages(true);
+                const data = await chatService.getMessages(selectedChatId, messageSearchQuery);
+                setSearchResults(data);
+            } catch (error) {
+                console.error("Failed to search messages:", error);
+            } finally {
+                setIsSearchingMessages(false);
+            }
+        };
+
+        const debounce = setTimeout(() => {
+            searchMessages();
+        }, 300);
+
+        return () => clearTimeout(debounce);
+    }, [selectedChatId, messageSearchQuery]);
+
     // WebSocket Connection & Real-time Updates
     useEffect(() => {
         if (!user) return;
@@ -59,7 +89,39 @@ export const useChat = (user: User | null) => {
         }
 
         // Handle incoming messages
-        const removeListener = webSocketService.addMessageHandler((msg: Message) => {
+        const removeListener = webSocketService.addMessageHandler((msg: Message | any) => {
+            // Handle specific message update type (like recall)
+            if (msg.type === 'message_update') {
+                setMessages(prev => prev.map(m =>
+                    m.id === msg.id
+                        ? { ...m, isRecalled: true, text: '', attachments: [] }
+                        : m
+                ));
+
+                // Update sidebar preview if it was the last message
+                setChats(prevChats => prevChats.map(c => {
+                    if (c.id === msg.chatId && c.lastMessage) {
+                        return c;
+                    }
+                    return c;
+                }));
+                return;
+            }
+
+            // Handle user status change
+            if (msg.type === 'user_status_change') {
+                const { userId, isOnline } = msg;
+                setChats(prevChats => prevChats.map(chat => {
+                    // Update isOnline for the chat if the other participant matches userId
+                    if (!chat.isGroup && chat.participants?.some(p => p.id === userId)) {
+                        return { ...chat, isOnline };
+                    }
+                    return chat;
+                }));
+                return;
+            }
+
+            // Standard message handling
             // Recompute isIncoming based on current user
             const isIncoming = msg.senderId !== user.id;
             const processedMsg = { ...msg, isIncoming };
@@ -93,7 +155,7 @@ export const useChat = (user: User | null) => {
                 if (!lastMessageText && processedMsg.attachments && processedMsg.attachments.length > 0) {
                     // Check if all attachments are images
                     const allImages = processedMsg.attachments.every(
-                        att => att.fileType && att.fileType.startsWith('image/')
+                        (att: any) => att.fileType && att.fileType.startsWith('image/')
                     );
                     lastMessageText = allImages ? "📷 Image" : "📎 File";
                 }
@@ -126,6 +188,7 @@ export const useChat = (user: User | null) => {
     const handleChatSelect = (id: string) => {
         setSelectedChatId(id);
         setSelectedUserForNewChat(null);
+        setMessageSearchQuery(''); // Clear search when changing chat
 
         // Call backend to mark as read (update last_read_at)
         chatService.markAsRead(id).catch(error => {
@@ -183,6 +246,21 @@ export const useChat = (user: User | null) => {
         }
     };
 
+    const handleRecallMessage = async (messageId: string) => {
+        if (!selectedChatId) return;
+        try {
+            await chatService.deleteMessage(selectedChatId, messageId);
+            // Optimistic update
+            setMessages(prev => prev.map(m =>
+                m.id === messageId
+                    ? { ...m, isRecalled: true, text: '', attachments: [] }
+                    : m
+            ));
+        } catch (error) {
+            console.error("Failed to recall message:", error);
+        }
+    };
+
     const selectedChat = chats.find(c => c.id === selectedChatId);
 
     return {
@@ -198,5 +276,10 @@ export const useChat = (user: User | null) => {
         handleChatSelect,
         handleSendMessage,
         handleUserSelect,
+        handleRecallMessage,
+        messageSearchQuery,
+        setMessageSearchQuery,
+        searchResults,
+        isSearchingMessages,
     };
 };

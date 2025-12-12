@@ -29,6 +29,8 @@ class ConnectionManager:
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
         self.active_connections[user_id].append(websocket)
+        # Broadcast status change to Online
+        await self.broadcast_user_status(user_id, True)
 
     def disconnect(self, websocket: WebSocket, user_id: UUID):
         if user_id in self.active_connections:
@@ -36,11 +38,46 @@ class ConnectionManager:
                 self.active_connections[user_id].remove(websocket)
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                pass 
+                
+    async def disconnect_async(self, websocket: WebSocket, user_id: UUID):
+        if user_id in self.active_connections:
+            if websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+                await self.broadcast_user_status(user_id, False)
 
     async def send_personal_message(self, message: dict, user_id: UUID):
         if user_id in self.active_connections:
             for connection in self.active_connections[user_id]:
-                await connection.send_json(message)
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    # Connection might be closed
+                    continue
+
+    async def broadcast_user_status(self, user_id: UUID, is_online: bool):
+        """
+        Broadcast user status change to all connected users.
+        In a real production app, this should only go to friends/contacts.
+        For now, we broadcast to everyone for simplicity.
+        """
+        message = {
+            "type": "user_status_change",
+            "userId": str(user_id),
+            "isOnline": is_online
+        }
+        
+        # Iterate over all active connections
+        for uid, connections in self.active_connections.items():
+            if uid == user_id:
+                continue # Don't notify self
+            for connection in connections:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    continue
 
 manager = ConnectionManager()
 
@@ -80,7 +117,7 @@ async def websocket_endpoint(
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, user_id)
+        await manager.disconnect_async(websocket, user_id)
 
 
 
@@ -101,9 +138,6 @@ async def create_chat(
     if not participant:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check for existing 1-on-1 conversation
-    # We need to find a conversation where BOTH users are participants and is_group is False
-    
     # Subquery to find conv_ids for current_user
     stmt_user = select(ConversationParticipant.conversation_id).where(
         ConversationParticipant.user_id == current_user.id
@@ -276,6 +310,7 @@ async def get_messages(
     chat_id: UUID,
     current_user: Annotated[User, Depends(deps.get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    query: Annotated[str | None, Query()] = None,
 ) -> Any:
     """
     Get all messages for a specific chat.
@@ -295,8 +330,15 @@ async def get_messages(
         raise HTTPException(status_code=403, detail="Not a participant")
 
     # 2. Fetch messages
+    filters = [Message.conversation_id == chat_id]
+    if query:
+        filters.append(and_(
+            Message.content.ilike(f"%{query}%"),
+            Message.is_deleted == False  # Only search non-deleted messages
+        ))
+    
     stmt = select(Message).where(
-        Message.conversation_id == chat_id
+        and_(*filters)
     ).order_by(
         Message.created_at.asc()  # Oldest to newest
     ).options(
@@ -333,6 +375,58 @@ async def get_messages(
         })
     
     return messages_dto
+
+
+@router.delete("/{chat_id}/messages/{message_id}", response_model=dict)
+async def delete_message(
+    chat_id: UUID,
+    message_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Soft delete a message.
+    """
+    # 1. Verify message exists and belongs to user
+    stmt = select(Message).where(
+        and_(
+            Message.id == message_id,
+            Message.conversation_id == chat_id,
+            Message.sender_id == current_user.id
+        )
+    ).options(
+        selectinload(Message.conversation).selectinload(Conversation.participants)
+    )
+    result = await db.execute(stmt)
+    message = result.scalars().first()
+    
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found or not owned by user")
+    
+    if message.is_deleted:
+        return {"status": "success", "message": "Message already deleted"}
+
+    # 2. Soft delete
+    message.is_deleted = True
+    message.content = None 
+    message.attachments = []
+    
+    await db.commit()
+    
+    # 3. Broadcast update
+    msg_dict = {
+        "type": "message_update",
+        "id": str(message.id),
+        "chatId": str(chat_id),
+        "isRecalled": True,
+        "text": None,
+        "attachments": []
+    }
+    
+    for p in message.conversation.participants:
+        await manager.send_personal_message(msg_dict, p.user_id)
+        
+    return {"status": "success", "message": "Message deleted"}
 
 
 @router.post("/{chat_id}/read", response_model=dict)
@@ -398,6 +492,7 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
     # Determine chat name and avatar (the other person)
     other_participants = [p for p in conv.participants if p.user_id != current_user_id]
     
+    is_online = False
     if conv.is_group:
         name = conv.name or "Group Chat"
         avatar = None # TODO: group avatar
@@ -406,6 +501,8 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
             other = other_participants[0].user
             name = other.username
             avatar = other.avatar_url
+            # Check online status using the global manager
+            is_online = other.id in manager.active_connections
         else:
             name = "Unknown" # Should not happen in 1-on-1
             avatar = None
@@ -468,6 +565,7 @@ def _map_conversation_to_chat(conv: Conversation, current_user_id: UUID) -> Chat
         participants=participants_dto,
         last_message=last_msg,
         time=time,
-        unreadCount=unread_count
+        unreadCount=unread_count,
+        isOnline=is_online
     )
 

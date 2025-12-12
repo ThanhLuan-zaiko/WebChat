@@ -7,8 +7,11 @@ export const chatService = {
         return response.data;
     },
 
-    getMessages: async (chatId: string): Promise<Message[]> => {
-        const response = await api.get(`/chats/${chatId}/messages`);
+    getMessages: async (chatId: string, query?: string): Promise<Message[]> => {
+        const url = query
+            ? `/chats/${chatId}/messages?query=${encodeURIComponent(query)}`
+            : `/chats/${chatId}/messages`;
+        const response = await api.get(url);
         return response.data;
     },
 
@@ -40,5 +43,9 @@ export const chatService = {
 
     markAsRead: async (chatId: string): Promise<void> => {
         await api.post(`/chats/${chatId}/read`);
+    },
+
+    deleteMessage: async (chatId: string, messageId: string): Promise<void> => {
+        await api.delete(`/chats/${chatId}/messages/${messageId}`);
     }
 };

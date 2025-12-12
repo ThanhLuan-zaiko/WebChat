@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { Search, MoreVertical, Paperclip, Smile, Mic, Phone, Send, ChevronDown } from 'lucide-react';
+import EmojiPicker, { type EmojiClickData } from 'emoji-picker-react';
 import { cn } from '../ui';
 import { MessageBubble } from './MessageBubble';
 import { FilePreview } from './FilePreview';
@@ -12,6 +13,10 @@ interface ChatAreaProps {
     messageInput: string;
     onMessageInputChange: (value: string) => void;
     onSendMessage: (files?: File[]) => void;
+    onRecallMessage: (messageId: string) => void;
+    searchQuery: string;
+    onSearchChange: (query: string) => void;
+    searchResults: Message[]; // New prop
     isLoadingMessages: boolean;
     isSidebarOpen: boolean;
     onBackClick: () => void;
@@ -24,6 +29,10 @@ export const ChatArea = ({
     messageInput,
     onMessageInputChange,
     onSendMessage,
+    onRecallMessage,
+    searchQuery,
+    onSearchChange,
+    searchResults,
     isLoadingMessages,
     isSidebarOpen,
     onBackClick
@@ -31,15 +40,84 @@ export const ChatArea = ({
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const emojiPickerRef = useRef<HTMLDivElement>(null);
     const [showScrollButton, setShowScrollButton] = useState(false);
     const [hasNewMessage, setHasNewMessage] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+    const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
+
+    // Debounce search
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (localSearchQuery !== searchQuery) {
+                onSearchChange(localSearchQuery);
+            }
+        }, 500);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [localSearchQuery, onSearchChange, searchQuery]);
+
+    // Sync local state if prop changes (e.g. cleared from outside)
+    useEffect(() => {
+        if (searchQuery !== localSearchQuery) {
+            setLocalSearchQuery(searchQuery);
+        }
+    }, [searchQuery]);
+
+    const displayMessages = (isSearching && localSearchQuery) ? searchResults : messages;
+
+    const handleJumpToMessage = (messageId: string) => {
+        setIsSearching(false);
+        setLocalSearchQuery('');
+        onSearchChange('');
+
+        // Wait for state update and render
+        setTimeout(() => {
+            const element = document.getElementById(`message-${messageId}`);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Add highlight effect
+                element.classList.add('bg-yellow-100/50');
+                setTimeout(() => {
+                    element.classList.remove('bg-yellow-100/50');
+                }, 2000);
+            } else {
+                console.warn("Message element not found:", messageId);
+            }
+        }, 100);
+    };
+
+    const onEmojiClick = (emojiObject: EmojiClickData) => {
+        onMessageInputChange(messageInput + emojiObject.emoji);
+        // Optional: Close picker after selection if desired, or keep open for multiple
+        // setShowEmojiPicker(false);
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         setHasNewMessage(false);
     };
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+                setShowEmojiPicker(false);
+            }
+        };
+
+        if (showEmojiPicker) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showEmojiPicker]);
 
     const checkIfNearBottom = () => {
         const container = messagesContainerRef.current;
@@ -172,7 +250,42 @@ export const ChatArea = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-4 text-gray-500">
-                    <Search className="h-5 w-5 cursor-pointer hover:text-gray-700" />
+                    {isSearching ? (
+                        <div className="flex items-center bg-gray-100 rounded-full px-3 py-1 animate-in fade-in slide-in-from-right-5 duration-200">
+                            <input
+                                autoFocus
+                                type="text"
+                                placeholder="Search..."
+                                value={localSearchQuery}
+                                onChange={(e) => setLocalSearchQuery(e.target.value)}
+                                className="bg-transparent border-none outline-none text-sm w-32 md:w-48 text-gray-700 placeholder-gray-400"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Escape') {
+                                        setIsSearching(false);
+                                        setLocalSearchQuery('');
+                                        onSearchChange('');
+                                    }
+                                }}
+                            />
+                            <button
+                                onClick={() => {
+                                    setIsSearching(false);
+                                    setLocalSearchQuery('');
+                                    onSearchChange('');
+                                }}
+                                className="ml-2 hover:text-gray-700"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    ) : (
+                        <Search
+                            className="h-5 w-5 cursor-pointer hover:text-gray-700"
+                            onClick={() => setIsSearching(true)}
+                        />
+                    )}
                     <Phone className="h-5 w-5 cursor-pointer hover:text-gray-700" />
                     <MoreVertical className="h-5 w-5 cursor-pointer hover:text-gray-700" />
                 </div>
@@ -188,10 +301,17 @@ export const ChatArea = ({
                     <div className="flex justify-center p-4">Loading messages...</div>
                 ) : (
                     <>
-                        {messages.map(msg => (
-                            <MessageBubble key={msg.id} message={msg} />
+                        {displayMessages.map(msg => (
+                            <MessageBubble
+                                key={msg.id}
+                                message={msg}
+                                onRecallMessage={onRecallMessage}
+                                // If showing search results, add click handler to jump
+                                onClick={isSearching ? () => handleJumpToMessage(msg.id) : undefined}
+                            />
                         ))}
-                        <div ref={messagesEndRef} />
+                        {/* Only show scrolling spacer if NOT searching */}
+                        {!isSearching && <div ref={messagesEndRef} />}
                     </>
                 )}
 
@@ -220,9 +340,19 @@ export const ChatArea = ({
 
                 {/* Input Row */}
                 <div className="flex items-end gap-3">
-                    <button className="text-gray-500 hover:text-gray-700 p-2">
-                        <Smile className="h-6 w-6" />
-                    </button>
+                    <div className="relative" ref={emojiPickerRef}>
+                        <button
+                            className="text-gray-500 hover:text-gray-700 p-2"
+                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        >
+                            <Smile className="h-6 w-6" />
+                        </button>
+                        {showEmojiPicker && (
+                            <div className="absolute bottom-12 left-0 z-50">
+                                <EmojiPicker onEmojiClick={onEmojiClick} />
+                            </div>
+                        )}
+                    </div>
                     <input
                         type="text"
                         placeholder="Message"

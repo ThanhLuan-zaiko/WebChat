@@ -33,6 +33,7 @@ export interface Message {
     time: string;
     isIncoming: boolean; // Computed on frontend based on current user
     isRead?: boolean;
+    isRecalled?: boolean;
     senderName?: string; // For groups
     attachments?: Attachment[];
 }
