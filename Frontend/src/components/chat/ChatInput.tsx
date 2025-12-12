@@ -62,6 +62,24 @@ export const ChatInput = ({
         onMessageInputChange(messageInput + emojiObject.emoji);
     };
 
+    const handlePaste = (e: React.ClipboardEvent) => {
+        const items = e.clipboardData.items;
+        const files: File[] = [];
+
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                    files.push(file);
+                }
+            }
+        }
+
+        if (files.length > 0) {
+            setSelectedFiles(prev => [...prev, ...files]);
+        }
+    };
+
     if (isBlocked) {
         return (
             <div className="p-4 bg-gray-50 text-center text-gray-500 text-sm mb-4 rounded-xl border border-gray-100 shadow-sm mx-auto w-full max-w-4xl">
@@ -101,6 +119,7 @@ export const ChatInput = ({
                     value={messageInput}
                     onChange={(e) => onMessageInputChange(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendWithFiles()}
+                    onPaste={handlePaste}
                     className="flex-1 py-2 bg-transparent focus:outline-none resize-none"
                 />
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
