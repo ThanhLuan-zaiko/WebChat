@@ -41,6 +41,11 @@ export const chatService = {
         return response.data;
     },
 
+    createGroupChat: async (participantIds: string[], name?: string): Promise<Chat> => {
+        const response = await api.post('/chats/group', { participantIds, name });
+        return response.data;
+    },
+
     markAsRead: async (chatId: string): Promise<void> => {
         await api.post(`/chats/${chatId}/read`);
     },
@@ -60,5 +65,17 @@ export const chatService = {
     getBlockedUsers: async (): Promise<any[]> => {
         const response = await api.get('/users/blocked');
         return response.data;
+    },
+
+    leaveGroup: async (chatId: string): Promise<void> => {
+        await api.post(`/chats/${chatId}/leave`);
+    },
+
+    kickMember: async (chatId: string, userId: string): Promise<void> => {
+        await api.delete(`/chats/${chatId}/participants/${userId}`);
+    },
+
+    deleteGroup: async (chatId: string): Promise<void> => {
+        await api.delete(`/chats/${chatId}`);
     }
 };

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Search, MoreVertical, Phone } from 'lucide-react';
+import { Search, MoreVertical, Phone, LogOut, Trash2 } from 'lucide-react';
 import type { Chat } from '../../types';
 
 interface ChatHeaderProps {
@@ -14,6 +14,9 @@ interface ChatHeaderProps {
     isBlocked: boolean;
     onBlockUser: () => void; // Opens modal in parent
     onUnblockUser: (userId: string) => void;
+    onGroupInfo?: () => void;
+    onLeaveGroup?: () => void;
+    onDeleteGroup?: () => void;
 }
 
 export const ChatHeader = ({
@@ -27,7 +30,10 @@ export const ChatHeader = ({
     otherParticipant,
     isBlocked,
     onBlockUser,
-    onUnblockUser
+    onUnblockUser,
+    onGroupInfo,
+    onLeaveGroup,
+    onDeleteGroup
 }: ChatHeaderProps) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -100,14 +106,55 @@ export const ChatHeader = ({
                     <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="focus:outline-none">
                         <MoreVertical className="h-5 w-5 cursor-pointer hover:text-gray-700" />
                     </button>
-                    {isMenuOpen && otherParticipant && (
+                    {isMenuOpen && (
                         <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-100 animate-in fade-in zoom-in-95 duration-100">
-                            <button
-                                onClick={handleBlockAction}
-                                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                                {isBlocked ? "Unblock User" : "Block User"}
-                            </button>
+                            {!chat.isGroup && otherParticipant && (
+                                <button
+                                    onClick={handleBlockAction}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                    {isBlocked ? "Unblock User" : "Block User"}
+                                </button>
+                            )}
+                            {chat.isGroup && onGroupInfo && (
+                                <button
+                                    onClick={() => {
+                                        onGroupInfo();
+                                        setIsMenuOpen(false);
+                                    }}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                    Group Info
+                                </button>
+                            )}
+                            {chat.isGroup && onLeaveGroup && (
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to leave this group?")) {
+                                            onLeaveGroup();
+                                            setIsMenuOpen(false);
+                                        }
+                                    }}
+                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Leave Group
+                                </button>
+                            )}
+                            {chat.isGroup && chat.role === 'admin' && onDeleteGroup && (
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Are you sure you want to dissolve this group? This action cannot be undone.")) {
+                                            onDeleteGroup();
+                                            setIsMenuOpen(false);
+                                        }
+                                    }}
+                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                    Dissolve Group
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>

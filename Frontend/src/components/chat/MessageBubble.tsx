@@ -7,11 +7,12 @@ interface MessageBubbleProps {
     message: Message;
     onRecallMessage: (messageId: string) => void;
     onClick?: () => void;
+    isGroup?: boolean;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
-export const MessageBubble = ({ message, onRecallMessage, onClick }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: MessageBubbleProps) => {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
     const formatFileSize = (bytes: number | null): string => {
@@ -41,6 +42,24 @@ export const MessageBubble = ({ message, onRecallMessage, onClick }: MessageBubb
                     message.isIncoming ? "self-start" : "self-end",
                     onClick && "cursor-pointer hover:bg-gray-50/50" // Add cursor pointer if clickable
                 )}>
+
+                {/* Sender Avatar for Group Chats */}
+                {isGroup && message.isIncoming && (
+                    <div className="mr-2 self-end mb-1 flex-shrink-0">
+                        {message.senderAvatar ? (
+                            <img
+                                src={getFileUrl(message.senderAvatar)}
+                                alt={message.senderName || 'Sender'}
+                                className="w-8 h-8 rounded-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-500">
+                                {(message.senderName || 'U')[0].toUpperCase()}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Recall Button - Only for outgoing messages that are not recalled */}
                 {!message.isIncoming && !message.isRecalled && (
                     <button
@@ -62,6 +81,10 @@ export const MessageBubble = ({ message, onRecallMessage, onClick }: MessageBubb
                         <p className="text-sm">Message recalled</p>
                     ) : (
                         <>
+                            {/* Sender Name for Group Chats */}
+                            {isGroup && message.isIncoming && message.senderName && (
+                                <p className="text-xs text-blue-600 font-medium mb-1">{message.senderName}</p>
+                            )}
                             {/* Attachments */}
                             {message.attachments && message.attachments.length > 0 && (
                                 <div className="mb-2 space-y-2">

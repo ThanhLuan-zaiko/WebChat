@@ -31,6 +31,10 @@ const HomePage = () => {
         blockedUsers,
         handleBlockUser,
         handleUnblockUser,
+        handleCreateGroupChat,
+        handleLeaveGroup,
+        handleKickMember,
+        handleDeleteGroup,
     } = useChat(user);
 
     const {
@@ -85,6 +89,8 @@ const HomePage = () => {
                 showSearchResults={showSearchResults}
                 setShowSearchResults={setShowSearchResults}
                 isSearching={isSearching}
+                onCreateGroup={handleCreateGroupChat}
+                currentUserId={user?.id}
             />
 
             {(selectedChatId || selectedUserForNewChat) ? (
@@ -106,6 +112,9 @@ const HomePage = () => {
                     onBlockUser={handleBlockUser}
                     onUnblockUser={handleUnblockUser}
                     currentUserId={user?.id}
+                    onLeaveGroup={handleLeaveGroup}
+                    onKickMember={handleKickMember}
+                    onDeleteGroup={handleDeleteGroup}
                 />
             ) : (
                 <EmptyState />

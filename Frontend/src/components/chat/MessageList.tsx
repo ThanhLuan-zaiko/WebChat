@@ -9,6 +9,7 @@ interface MessageListProps {
     onRecallMessage: (messageId: string) => void;
     isSearching: boolean;
     onJumpToMessage: (messageId: string) => void;
+    isGroup: boolean;
 }
 
 export const MessageList = ({
@@ -16,7 +17,8 @@ export const MessageList = ({
     isLoading,
     onRecallMessage,
     isSearching,
-    onJumpToMessage
+    onJumpToMessage,
+    isGroup
 }: MessageListProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -71,6 +73,7 @@ export const MessageList = ({
                             message={msg}
                             onRecallMessage={onRecallMessage}
                             onClick={isSearching ? () => onJumpToMessage(msg.id) : undefined}
+                            isGroup={isGroup}
                         />
                     ))}
                     {!isSearching && <div ref={messagesEndRef} />}

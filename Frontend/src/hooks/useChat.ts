@@ -262,6 +262,18 @@ export const useChat = (user: User | null) => {
         }
     };
 
+    const handleCreateGroupChat = async (participantIds: string[], name?: string) => {
+        try {
+            const newChat = await chatService.createGroupChat(participantIds, name);
+            setChats(prev => [newChat, ...prev]);
+            setSelectedChatId(newChat.id);
+            return newChat;
+        } catch (error) {
+            console.error("Failed to create group chat:", error);
+            throw error;
+        }
+    };
+
     const handleUserSelect = (selectedUser: User) => {
         // Check if chat already exists
         const existingChat = chats.find(c =>
@@ -311,6 +323,48 @@ export const useChat = (user: User | null) => {
         }
     };
 
+    const handleLeaveGroup = async (chatId: string) => {
+        try {
+            await chatService.leaveGroup(chatId);
+            setChats(prev => prev.filter(c => c.id !== chatId));
+            if (selectedChatId === chatId) {
+                setSelectedChatId(null);
+            }
+        } catch (error) {
+            console.error("Failed to leave group:", error);
+        }
+    };
+
+    const handleKickMember = async (chatId: string, userId: string) => {
+        try {
+            await chatService.kickMember(chatId, userId);
+            // Update local chat participants
+            setChats(prev => prev.map(c => {
+                if (c.id === chatId) {
+                    return {
+                        ...c,
+                        participants: c.participants?.filter(p => p.id !== userId)
+                    };
+                }
+                return c;
+            }));
+        } catch (error) {
+            console.error("Failed to kick member:", error);
+        }
+    };
+
+    const handleDeleteGroup = async (chatId: string) => {
+        try {
+            await chatService.deleteGroup(chatId);
+            setChats(prev => prev.filter(c => c.id !== chatId));
+            if (selectedChatId === chatId) {
+                setSelectedChatId(null);
+            }
+        } catch (error) {
+            console.error("Failed to delete group:", error);
+        }
+    };
+
     const selectedChat = chats.find(c => c.id === selectedChatId);
 
     return {
@@ -334,5 +388,9 @@ export const useChat = (user: User | null) => {
         blockedUsers,
         handleBlockUser,
         handleUnblockUser,
+        handleCreateGroupChat,
+        handleLeaveGroup,
+        handleKickMember,
+        handleDeleteGroup,
     };
 };

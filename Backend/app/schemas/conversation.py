@@ -15,6 +15,11 @@ class ConversationCreate(BaseModel):
     participantId: UUID
 
 
+class GroupConversationCreate(BaseModel):
+    participantIds: list[UUID]
+    name: str | None = None
+
+
 class Conversation(ConversationBase):
     id: UUID
     last_message_at: datetime | None = None
@@ -30,20 +35,24 @@ class Conversation(ConversationBase):
 class ChatParticipant(BaseModel):
     id: UUID
     username: str
-    avatar_url: str | None = None
+    avatar: str | None = None
+    role: str | None = None
     
     class Config:
         from_attributes = True
 
 
-class Chat(ConversationBase):
+class Chat(BaseModel):
     id: UUID
+    name: str | None = None
+    isGroup: bool
     participants: list[ChatParticipant]
-    last_message: str | None = None  # Frontend expects this
+    lastMessage: str | None = None
     unreadCount: int = 0
     time: str | None = None
     isOnline: bool = False
     isBlockedBy: bool = False
+    role: str | None = None
     
     class Config:
         from_attributes = True

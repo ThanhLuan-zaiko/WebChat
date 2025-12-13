@@ -3,6 +3,7 @@ export interface User {
     username: string;
     avatar?: string;
     isOnline?: boolean;
+    role?: 'admin' | 'member';
 }
 
 export interface Chat {
@@ -16,6 +17,7 @@ export interface Chat {
     isOnline?: boolean;
     isBlockedBy?: boolean;
     participants?: User[];
+    role?: 'admin' | 'member'; // Current user's role in this chat
 }
 
 export interface Attachment {
@@ -36,5 +38,6 @@ export interface Message {
     isRead?: boolean;
     isRecalled?: boolean;
     senderName?: string; // For groups
+    senderAvatar?: string; // For groups
     attachments?: Attachment[];
 }

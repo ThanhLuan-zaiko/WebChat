@@ -10,7 +10,7 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Conversation, ConversationParticipant, User, Message, MessageType, UserBlock, Attachment
+from app.models import Conversation, ConversationParticipant, User, Message, MessageType, UserBlock, Attachment, UserRole
 from app.schemas.conversation import ConversationCreate, Chat, ChatParticipant
 from app.services.websocket import manager
 
@@ -54,6 +54,31 @@ class ChatService:
         
         await self.db.commit()
         
+        # Reload with relationships
+        stmt = select(Conversation).where(
+            Conversation.id == new_chat.id
+        ).options(
+            selectinload(Conversation.participants).selectinload(ConversationParticipant.user)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def create_group_chat(self, user_id: UUID, participant_ids: List[UUID], name: str | None) -> Conversation:
+        """Create a new group conversation."""
+        new_chat = Conversation(is_group=True, name=name)
+        self.db.add(new_chat)
+        await self.db.flush()
+
+        # Add all participants (creator + selected users)
+        # Creator is admin
+        participants = [ConversationParticipant(conversation_id=new_chat.id, user_id=user_id, role=UserRole.admin)]
+        for pid in participant_ids:
+            if pid != user_id: # Prevent adding self twice if selected
+                 participants.append(ConversationParticipant(conversation_id=new_chat.id, user_id=pid, role=UserRole.member))
+        
+        self.db.add_all(participants)
+        await self.db.commit()
+
         # Reload with relationships
         stmt = select(Conversation).where(
             Conversation.id == new_chat.id
@@ -173,6 +198,7 @@ class ChatService:
             "text": text or "",
             "time": new_message.created_at.strftime("%H:%M"),
             "senderName": user.username,
+            "senderAvatar": user.avatar_url,
             "attachments": attachments_data
         }
         
@@ -225,6 +251,7 @@ class ChatService:
                 "text": msg.content,
                 "time": msg.created_at.strftime("%H:%M"),
                 "senderName": msg.sender.username if msg.sender else "System",
+                "senderAvatar": msg.sender.avatar_url if msg.sender else None,
                 "isIncoming": msg.sender_id != user_id if msg.sender_id else False,
                 "attachments": attachments_data
             })
@@ -287,6 +314,103 @@ class ChatService:
         await self.db.commit()
         return {"status": "success", "message": "Chat marked as read"}
 
+    async def leave_group(self, user_id: UUID, chat_id: UUID) -> dict:
+        """Leave a group chat."""
+        # Check if chat exists and is group
+        chat = await self.get_chat_details(chat_id, user_id)
+        if not chat.is_group:
+             raise HTTPException(status_code=400, detail="Cannot leave a 1-on-1 chat")
+
+        # Get participant record
+        stmt = select(ConversationParticipant).where(
+            and_(
+                ConversationParticipant.conversation_id == chat_id,
+                ConversationParticipant.user_id == user_id
+            )
+        )
+        result = await self.db.execute(stmt)
+        participant = result.scalars().first()
+        
+        if not participant: # Should be caught by get_chat_details but safe check
+            raise HTTPException(status_code=403, detail="Not a participant")
+
+        # If admin leaves, should we transfer ownership? 
+        # For now, let's just allow leaving. If last admin leaves, group might be headless.
+        # Simple requirement: "người dùng có quyền rời nhóm"
+        
+        await self.db.delete(participant)
+        await self.db.commit()
+        
+        # Broadcast update
+        # We need to tell others that user left
+        system_msg = {
+            "type": "system_notification",
+            "chatId": str(chat_id),
+            "text": f"{participant.user.username} has left the group"
+        }
+        # Ideally we send this to remaining participants
+        # Since we deleted the participant, we can iterate over chat.participants (which might be stale, need refresh or query)
+        
+        # Re-fetch participants
+        refresh_stmt = select(ConversationParticipant).where(ConversationParticipant.conversation_id == chat_id)
+        refresh_result = await self.db.execute(refresh_stmt)
+        remaining = refresh_result.scalars().all()
+        
+        if not remaining:
+            # Empty group, maybe delete?
+            await self.db.delete(chat)
+            await self.db.commit()
+        else:
+            # Need to notify remaining users
+            # Creating a System Message in DB is better for persistence
+            # For simplicity, just relying on WebSocket event if supported, or creating a text message from system
+            # Let's create a system message
+            pass # TODO: Add system message support if needed, or just relying on UI update
+            
+        return {"status": "success", "message": "Left group"}
+
+    async def kick_member(self, admin_id: UUID, chat_id: UUID, target_user_id: UUID) -> dict:
+        """Kick a member from group."""
+        chat = await self.get_chat_details(chat_id, admin_id)
+        
+        if not chat.is_group:
+            raise HTTPException(status_code=400, detail="Not a group chat")
+
+        # Verify admin
+        admin_p = next((p for p in chat.participants if p.user_id == admin_id), None)
+        if not admin_p or admin_p.role != UserRole.admin:
+            raise HTTPException(status_code=403, detail="Only admin can kick members")
+            
+        # Verify target is in chat
+        target_p = next((p for p in chat.participants if p.user_id == target_user_id), None)
+        if not target_p:
+            raise HTTPException(status_code=404, detail="User not in group")
+
+        if target_user_id == admin_id:
+            raise HTTPException(status_code=400, detail="Cannot kick self")
+
+        await self.db.delete(target_p)
+        await self.db.commit()
+        
+        return {"status": "success", "message": "User kicked"}
+
+    async def delete_group(self, admin_id: UUID, chat_id: UUID) -> dict:
+        """Dissolve the group."""
+        chat = await self.get_chat_details(chat_id, admin_id)
+        
+        if not chat.is_group:
+            raise HTTPException(status_code=400, detail="Not a group chat")
+            
+        # Verify admin
+        admin_p = next((p for p in chat.participants if p.user_id == admin_id), None)
+        if not admin_p or admin_p.role != UserRole.admin:
+            raise HTTPException(status_code=403, detail="Only admin can dissolve group")
+            
+        await self.db.delete(chat)
+        await self.db.commit()
+        
+        return {"status": "success", "message": "Group dissolved"}
+
     async def get_user_chats(self, user_id: UUID) -> List[Chat]:
         stmt = select(Conversation).join(
             ConversationParticipant
@@ -318,7 +442,12 @@ class ChatService:
         is_blocked_by = False
         name = "Unknown"
         avatar = None
+        current_user_role = None
         
+        current_participant = next((p for p in conv.participants if p.user_id == current_user_id), None)
+        if current_participant:
+            current_user_role = current_participant.role
+
         if conv.is_group:
             name = conv.name or "Group Chat"
         else:
@@ -334,7 +463,8 @@ class ChatService:
             ChatParticipant(
                 id=p.user.id,
                 username=p.user.username,
-                avatar_url=p.user.avatar_url
+                avatar=p.user.avatar_url,
+                role=p.role 
             ) for p in conv.participants
         ]
         
@@ -373,11 +503,12 @@ class ChatService:
         return Chat(
             id=conv.id,
             name=name,
-            is_group=conv.is_group,
+            isGroup=conv.is_group,
             participants=participants_dto,
-            last_message=last_msg,
+            lastMessage=last_msg,
             time=time,
-            unreadCount=unread_count,
-            isOnline=is_online,
-            isBlockedBy=is_blocked_by
+            unread_count=unread_count,
+            is_online=is_online,
+            is_blocked_by=is_blocked_by,
+            role=current_user_role
         )

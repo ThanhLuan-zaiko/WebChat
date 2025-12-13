@@ -6,6 +6,7 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { BlockUserModal } from './BlockUserModal';
 import { DragDropOverlay } from './DragDropOverlay';
+import { GroupInfoModal } from './GroupInfoModal';
 
 interface ChatAreaProps {
     chat: Chat | undefined;
@@ -25,6 +26,9 @@ interface ChatAreaProps {
     onBlockUser: (userId: string) => void;
     onUnblockUser: (userId: string) => void;
     currentUserId: string | undefined;
+    onLeaveGroup: (chatId: string) => void;
+    onKickMember: (chatId: string, userId: string) => void;
+    onDeleteGroup: (chatId: string) => void;
 }
 
 export const ChatArea = ({
@@ -44,7 +48,10 @@ export const ChatArea = ({
     blockedUsers,
     onBlockUser,
     onUnblockUser,
-    currentUserId
+    currentUserId,
+    onLeaveGroup,
+    onKickMember,
+    onDeleteGroup
 }: ChatAreaProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -53,6 +60,7 @@ export const ChatArea = ({
 
     // New UI States
     const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+    const [showGroupInfo, setShowGroupInfo] = useState(false);
 
     // Filter messages for display
     const displayMessages = (isSearching && localSearchQuery) ? searchResults : messages;
@@ -139,6 +147,9 @@ export const ChatArea = ({
                 isBlocked={isBlocked}
                 onBlockUser={() => setShowBlockConfirm(true)}
                 onUnblockUser={onUnblockUser}
+                onGroupInfo={() => setShowGroupInfo(true)}
+                onLeaveGroup={() => onLeaveGroup(chat.id)}
+                onDeleteGroup={() => onDeleteGroup(chat.id)}
             />
 
             <MessageList
@@ -147,6 +158,7 @@ export const ChatArea = ({
                 onRecallMessage={onRecallMessage}
                 isSearching={isSearching}
                 onJumpToMessage={handleJumpToMessage}
+                isGroup={!!chat.isGroup}
             />
 
             <ChatInput
@@ -168,6 +180,24 @@ export const ChatArea = ({
                     onConfirm={() => {
                         if (otherParticipant) onBlockUser(otherParticipant.id);
                         setShowBlockConfirm(false);
+                    }}
+                />
+            )}
+
+            {showGroupInfo && chat && currentUserId && (
+                <GroupInfoModal
+                    isOpen={showGroupInfo}
+                    onClose={() => setShowGroupInfo(false)}
+                    chat={chat}
+                    currentUserId={currentUserId}
+                    onLeaveGroup={() => {
+                        onLeaveGroup(chat.id);
+                        setShowGroupInfo(false);
+                    }}
+                    onKickMember={(userId) => onKickMember(chat.id, userId)}
+                    onDeleteGroup={() => {
+                        onDeleteGroup(chat.id);
+                        setShowGroupInfo(false);
                     }}
                 />
             )}

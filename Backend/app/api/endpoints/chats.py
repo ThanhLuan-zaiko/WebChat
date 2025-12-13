@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.core import get_db, security
 from app.models import User
-from app.schemas.conversation import ConversationCreate, Chat
+from app.schemas.conversation import ConversationCreate, Chat, GroupConversationCreate
 from app.api import deps
 from app.services.websocket import manager
 from app.services.chat_service import ChatService
@@ -89,6 +89,32 @@ async def create_chat(
     return service._map_conversation_to_chat(new_chat, current_user.id)
 
 
+@router.post("/group", response_model=Chat)
+async def create_group_chat(
+    chat_in: GroupConversationCreate,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Create a new group chat.
+    """
+    if len(chat_in.participantIds) < 2:
+        raise HTTPException(status_code=400, detail="Group chat must have at least 3 participants (including you)")
+
+    service = ChatService(db)
+    
+    # Verify participants exist
+    for pid in chat_in.participantIds:
+        if pid == current_user.id:
+             raise HTTPException(status_code=400, detail="Do not include yourself in participant list")
+        user = await db.get(User, pid)
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User {pid} not found")
+
+    new_chat = await service.create_group_chat(current_user.id, chat_in.participantIds, chat_in.name)
+    return service._map_conversation_to_chat(new_chat, current_user.id)
+
+
 @router.post("/{chat_id}/messages", response_model=Any)
 async def send_message(
     chat_id: UUID,
@@ -153,3 +179,43 @@ async def get_chats(
     """
     service = ChatService(db)
     return await service.get_user_chats(current_user.id)
+
+
+@router.post("/{chat_id}/leave", response_model=dict)
+async def leave_group(
+    chat_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Leave a group chat.
+    """
+    service = ChatService(db)
+    return await service.leave_group(current_user.id, chat_id)
+
+
+@router.delete("/{chat_id}/participants/{user_id}", response_model=dict)
+async def kick_member(
+    chat_id: UUID,
+    user_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Kick a member from group (Admin only).
+    """
+    service = ChatService(db)
+    return await service.kick_member(current_user.id, chat_id, user_id)
+
+
+@router.delete("/{chat_id}", response_model=dict)
+async def delete_group(
+    chat_id: UUID,
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Dissolve a group (Admin only).
+    """
+    service = ChatService(db)
+    return await service.delete_group(current_user.id, chat_id)
