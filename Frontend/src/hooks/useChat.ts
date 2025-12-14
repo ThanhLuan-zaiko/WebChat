@@ -120,8 +120,8 @@ export const useChat = (user: User | null) => {
             if (msg.type === 'user_status_change') {
                 const { userId, isOnline } = msg;
                 setChats(prevChats => prevChats.map(chat => {
-                    // Update isOnline for the chat if the other participant matches userId
-                    if (!chat.isGroup && chat.participants?.some(p => p.id === userId)) {
+                    const hasParticipant = chat.participants?.some(p => p.id === userId);
+                    if (!chat.isGroup && hasParticipant) {
                         return { ...chat, isOnline };
                     }
                     return chat;

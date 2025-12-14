@@ -610,8 +610,10 @@ class ChatService:
                 other = other_participants[0].user
                 name = other.username
                 avatar = other.avatar_url
-                is_online = other.id in manager.active_connections
-                if str(other.id) in blocked_by_ids:
+                other_id_str = str(other.id)
+                is_online = other_id_str in manager.active_connections
+                
+                if other_id_str in blocked_by_ids:
                     is_blocked_by = True
 
         participants_dto = [
@@ -662,8 +664,8 @@ class ChatService:
             participants=participants_dto,
             lastMessage=last_msg,
             time=time,
-            unread_count=unread_count,
-            is_online=is_online,
-            is_blocked_by=is_blocked_by,
+            unreadCount=unread_count,
+            isOnline=is_online,
+            isBlockedBy=is_blocked_by,
             role=current_user_role
         )

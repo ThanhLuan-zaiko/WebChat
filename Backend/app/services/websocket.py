@@ -8,55 +8,59 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self):
-        # Map user_id to list of active websockets (user might have multiple tabs)
-        self.active_connections: Dict[UUID, List[WebSocket]] = {}
+        # Map user_id (str) to list of active websockets
+        self.active_connections: Dict[str, List[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, user_id: UUID):
+    async def connect(self, websocket: WebSocket, user_id: UUID | str):
         await websocket.accept()
-        if user_id not in self.active_connections:
-            self.active_connections[user_id] = []
-        self.active_connections[user_id].append(websocket)
+        user_id_str = str(user_id)
+        if user_id_str not in self.active_connections:
+            self.active_connections[user_id_str] = []
+        self.active_connections[user_id_str].append(websocket)
         # Broadcast status change to Online
-        await self.broadcast_user_status(user_id, True)
+        await self.broadcast_user_status(user_id_str, True)
 
-    def disconnect(self, websocket: WebSocket, user_id: UUID):
-        if user_id in self.active_connections:
-            if websocket in self.active_connections[user_id]:
-                self.active_connections[user_id].remove(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
-                pass 
+    def disconnect(self, websocket: WebSocket, user_id: UUID | str):
+        user_id_str = str(user_id)
+        if user_id_str in self.active_connections:
+            if websocket in self.active_connections[user_id_str]:
+                self.active_connections[user_id_str].remove(websocket)
+            if not self.active_connections[user_id_str]:
+                del self.active_connections[user_id_str]
                 
-    async def disconnect_async(self, websocket: WebSocket, user_id: UUID):
-        if user_id in self.active_connections:
-            if websocket in self.active_connections[user_id]:
-                self.active_connections[user_id].remove(websocket)
-            if not self.active_connections[user_id]:
-                del self.active_connections[user_id]
-                await self.broadcast_user_status(user_id, False)
+    async def disconnect_async(self, websocket: WebSocket, user_id: UUID | str):
+        user_id_str = str(user_id)
+        if user_id_str in self.active_connections:
+            if websocket in self.active_connections[user_id_str]:
+                self.active_connections[user_id_str].remove(websocket)
+            if not self.active_connections[user_id_str]:
+                del self.active_connections[user_id_str]
+                await self.broadcast_user_status(user_id_str, False)
 
-    async def send_personal_message(self, message: dict, user_id: UUID):
-        if user_id in self.active_connections:
-            for connection in self.active_connections[user_id]:
+    async def send_personal_message(self, message: dict, user_id: UUID | str):
+        user_id_str = str(user_id)
+        if user_id_str in self.active_connections:
+            for connection in self.active_connections[user_id_str]:
                 try:
                     await connection.send_json(message)
                 except Exception:
                     # Connection might be closed, should ideally be cleaned up
                     continue
 
-    async def broadcast_user_status(self, user_id: UUID, is_online: bool):
+    async def broadcast_user_status(self, user_id: UUID | str, is_online: bool):
         """
         Broadcast user status change to all connected users.
         """
+        user_id_str = str(user_id)
         message = {
             "type": "user_status_change",
-            "userId": str(user_id),
+            "userId": user_id_str,
             "isOnline": is_online
         }
         
         # Iterate over all active connections
         for uid, connections in self.active_connections.items():
-            if uid == user_id:
+            if uid == user_id_str:
                 continue # Don't notify self
             for connection in connections:
                 try:
@@ -79,18 +83,11 @@ class ConnectionManager:
         }
         
         # We only really need to notify the two parties involved
-        target_ids = [blocker_id, blocked_id]
+        target_ids = [str(blocker_id), str(blocked_id)]
         
         for uid in target_ids:
-            lookup_id = uid
-            if isinstance(uid, str):
-                try:
-                    lookup_id = UUID(uid)
-                except ValueError:
-                    continue
-            
-            if lookup_id in self.active_connections:
-                for connection in self.active_connections[lookup_id]:
+            if uid in self.active_connections:
+                for connection in self.active_connections[uid]:
                     try:
                         await connection.send_json(message)
                     except Exception:
