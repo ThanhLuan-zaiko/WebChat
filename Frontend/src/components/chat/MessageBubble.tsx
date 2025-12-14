@@ -32,6 +32,16 @@ export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: Me
         return `${API_BASE_URL}${url}`;
     };
 
+    if (message.type === 'system') {
+        return (
+            <div className="flex justify-center my-2 w-full">
+                <span className="text-xs text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                    {message.text}
+                </span>
+            </div>
+        );
+    }
+
     return (
         <>
             <div
@@ -40,7 +50,7 @@ export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: Me
                 className={cn(
                     "flex mb-2 max-w-[80%] group/bubble relative",
                     message.isIncoming ? "self-start" : "self-end",
-                    onClick && "cursor-pointer hover:bg-gray-50/50" // Add cursor pointer if clickable
+                    onClick && "cursor-pointer hover:bg-gray-50/50"
                 )}>
 
                 {/* Sender Avatar for Group Chats */}

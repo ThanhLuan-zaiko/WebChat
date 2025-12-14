@@ -219,3 +219,16 @@ async def delete_group(
     """
     service = ChatService(db)
     return await service.delete_group(current_user.id, chat_id)
+
+@router.post("/{chat_id}/participants", response_model=dict)
+async def add_members(
+    chat_id: UUID,
+    user_ids: List[UUID],
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Add members to group (Admin only).
+    """
+    service = ChatService(db)
+    return await service.add_members(current_user.id, chat_id, user_ids)

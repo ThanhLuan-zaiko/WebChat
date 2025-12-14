@@ -7,6 +7,7 @@ import { ChatInput } from './ChatInput';
 import { BlockUserModal } from './BlockUserModal';
 import { DragDropOverlay } from './DragDropOverlay';
 import { GroupInfoModal } from './GroupInfoModal';
+import { AddMemberModal } from './AddMemberModal';
 
 interface ChatAreaProps {
     chat: Chat | undefined;
@@ -29,6 +30,7 @@ interface ChatAreaProps {
     onLeaveGroup: (chatId: string) => void;
     onKickMember: (chatId: string, userId: string) => void;
     onDeleteGroup: (chatId: string) => void;
+    onAddMembers: (chatId: string, userIds: string[]) => void;
 }
 
 export const ChatArea = ({
@@ -51,7 +53,8 @@ export const ChatArea = ({
     currentUserId,
     onLeaveGroup,
     onKickMember,
-    onDeleteGroup
+    onDeleteGroup,
+    onAddMembers
 }: ChatAreaProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -61,6 +64,7 @@ export const ChatArea = ({
     // New UI States
     const [showBlockConfirm, setShowBlockConfirm] = useState(false);
     const [showGroupInfo, setShowGroupInfo] = useState(false);
+    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
     // Filter messages for display
     const displayMessages = (isSearching && localSearchQuery) ? searchResults : messages;
@@ -150,6 +154,7 @@ export const ChatArea = ({
                 onGroupInfo={() => setShowGroupInfo(true)}
                 onLeaveGroup={() => onLeaveGroup(chat.id)}
                 onDeleteGroup={() => onDeleteGroup(chat.id)}
+                onAddMembers={() => setShowAddMemberModal(true)}
             />
 
             <MessageList
@@ -199,6 +204,19 @@ export const ChatArea = ({
                         onDeleteGroup(chat.id);
                         setShowGroupInfo(false);
                     }}
+                    onAddMembers={(userIds) => onAddMembers(chat.id, userIds)}
+                />
+            )}
+
+            {showAddMemberModal && chat && (
+                <AddMemberModal
+                    isOpen={showAddMemberModal}
+                    onClose={() => setShowAddMemberModal(false)}
+                    onAddMembers={(userIds) => {
+                        onAddMembers(chat.id, userIds);
+                        setShowAddMemberModal(false);
+                    }}
+                    currentMemberIds={chat.participants?.map(p => p.id) || []}
                 />
             )}
         </div>

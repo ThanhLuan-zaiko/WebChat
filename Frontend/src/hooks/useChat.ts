@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { chatService } from '../services/chatService';
 import { webSocketService } from '../services/websocketService';
 import type { Chat, Message, User } from '../types';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 export const useChat = (user: User | null) => {
     const [chats, setChats] = useState<Chat[]>([]);
@@ -153,6 +156,73 @@ export const useChat = (user: User | null) => {
                 return;
             }
 
+            // Handle group events (Kick, Leave, Dissolve)
+            if (msg.type === 'group_event') {
+                const { event, chatId, userId } = msg;
+
+                // 1. User Kicked
+                if (event === 'user_kicked') {
+                    // If I am the one kicked, remove the chat
+                    if (userId === user.id) {
+                        setChats(prev => prev.filter(c => c.id !== chatId));
+                        if (selectedChatId === chatId) {
+                            setSelectedChatId(null);
+                        }
+                    }
+                    return;
+                }
+
+                // 2. Member Removed/Left (Update participants list for others)
+                if (event === 'member_removed') {
+                    setChats(prev => prev.map(c => {
+                        if (c.id === chatId) {
+                            return {
+                                ...c,
+                                participants: c.participants?.filter(p => p.id !== userId)
+                            };
+                        }
+                        return c;
+                    }));
+                    return;
+                }
+
+                if (event === 'group_dissolved') {
+                    setChats(prev => prev.filter(c => c.id !== chatId));
+                    if (selectedChatId === chatId) {
+                        setSelectedChatId(null);
+                    }
+                    return;
+                }
+
+                // 4. Added to Group (I was added)
+                if (event === 'added_to_group') {
+                    // Fetch chats to get the new one
+                    chatService.getChats().then(updatedChats => {
+                        setChats(updatedChats);
+                    }).catch(err => console.error("Failed to update chats", err));
+                    return;
+                }
+
+                // 5. Member Added (Someone else was added)
+                if (event === 'member_added') {
+                    const { users } = msg; // Expecting list of users
+                    setChats(prev => prev.map(c => {
+                        if (c.id === chatId) {
+                            // Merge new participants, avoiding duplicates
+                            const existingIds = new Set(c.participants?.map(p => p.id));
+                            const newParticipants = users.filter((u: any) => !existingIds.has(u.id));
+
+                            return {
+                                ...c,
+                                participants: [...(c.participants || []), ...newParticipants]
+                            };
+                        }
+                        return c;
+                    }));
+                    return;
+                }
+            }
+
             // Standard message handling
             // Recompute isIncoming based on current user
             const isIncoming = msg.senderId !== user.id;
@@ -196,9 +266,6 @@ export const useChat = (user: User | null) => {
                     ...prevChats[chatIndex],
                     lastMessage: lastMessageText,
                     time: processedMsg.time,
-                    // Only increase unread count if:
-                    // 1. Message is incoming (from someone else)
-                    // 2. Chat is NOT currently open
                     unreadCount: (isIncoming && selectedChatId !== msg.chatId)
                         ? (prevChats[chatIndex].unreadCount || 0) + 1
                         : (selectedChatId === msg.chatId ? 0 : prevChats[chatIndex].unreadCount || 0)
@@ -392,5 +459,20 @@ export const useChat = (user: User | null) => {
         handleLeaveGroup,
         handleKickMember,
         handleDeleteGroup,
+        handleAddMembers: async (chatId: string, userIds: string[]) => {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) throw new Error("No token");
+                await axios.post(`${API_BASE_URL}/chats/${chatId}/participants`, userIds, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (selectedChatId === chatId) {
+                }
+            } catch (error) {
+                console.error("Failed to add members", error);
+                throw error;
+            }
+        }
     };
 };
+

@@ -91,7 +91,7 @@ class ChatService:
     async def get_chat_details(self, chat_id: UUID, user_id: UUID) -> Conversation:
         """Get chat details and verify participation."""
         stmt = select(Conversation).where(Conversation.id == chat_id).options(
-            selectinload(Conversation.participants)
+            selectinload(Conversation.participants).selectinload(ConversationParticipant.user)
         )
         result = await self.db.execute(stmt)
         chat = result.scalars().first()
@@ -199,6 +199,7 @@ class ChatService:
             "time": new_message.created_at.strftime("%H:%M"),
             "senderName": user.username,
             "senderAvatar": user.avatar_url,
+            "type": new_message.type,
             "attachments": attachments_data
         }
         
@@ -253,6 +254,7 @@ class ChatService:
                 "senderName": msg.sender.username if msg.sender else "System",
                 "senderAvatar": msg.sender.avatar_url if msg.sender else None,
                 "isIncoming": msg.sender_id != user_id if msg.sender_id else False,
+                "type": msg.type,
                 "attachments": attachments_data
             })
         return messages_dto
@@ -334,38 +336,39 @@ class ChatService:
         if not participant: # Should be caught by get_chat_details but safe check
             raise HTTPException(status_code=403, detail="Not a participant")
 
-        # If admin leaves, should we transfer ownership? 
-        # For now, let's just allow leaving. If last admin leaves, group might be headless.
-        # Simple requirement: "người dùng có quyền rời nhóm"
-        
         await self.db.delete(participant)
         await self.db.commit()
         
-        # Broadcast update
-        # We need to tell others that user left
-        system_msg = {
-            "type": "system_notification",
+        # Create persistent system message
+        system_msg = Message(
+            conversation_id=chat_id,
+            sender_id=None, # System message has no sender
+            content=f"{participant.user.username} has left the group",
+            type=MessageType.system
+        )
+        self.db.add(system_msg)
+        await self.db.commit()
+        await self.db.refresh(system_msg)
+
+        msg_dict = {
+            "id": str(system_msg.id),
             "chatId": str(chat_id),
-            "text": f"{participant.user.username} has left the group"
+            "senderId": None,
+            "text": system_msg.content,
+            "time": system_msg.created_at.strftime("%H:%M"),
+            "senderName": "System",
+            "senderAvatar": None,
+            "isIncoming": False,
+            "type": "system"
         }
-        # Ideally we send this to remaining participants
-        # Since we deleted the participant, we can iterate over chat.participants (which might be stale, need refresh or query)
         
-        # Re-fetch participants
-        refresh_stmt = select(ConversationParticipant).where(ConversationParticipant.conversation_id == chat_id)
-        refresh_result = await self.db.execute(refresh_stmt)
-        remaining = refresh_result.scalars().all()
+        stmt = select(ConversationParticipant).where(ConversationParticipant.conversation_id == chat_id)
+        result = await self.db.execute(stmt)
+        remaining_participants = result.scalars().all()
         
-        if not remaining:
-            # Empty group, maybe delete?
-            await self.db.delete(chat)
-            await self.db.commit()
-        else:
-            # Need to notify remaining users
-            # Creating a System Message in DB is better for persistence
-            # For simplicity, just relying on WebSocket event if supported, or creating a text message from system
-            # Let's create a system message
-            pass # TODO: Add system message support if needed, or just relying on UI update
+        # Notify remaining participants
+        for p in remaining_participants:
+            await manager.send_personal_message(msg_dict, p.user_id)
             
         return {"status": "success", "message": "Left group"}
 
@@ -390,8 +393,54 @@ class ChatService:
             raise HTTPException(status_code=400, detail="Cannot kick self")
 
         await self.db.delete(target_p)
-        await self.db.commit()
         
+        # Create system message
+        system_msg = Message(
+            conversation_id=chat_id,
+            sender_id=None,
+            content=f"{admin_p.user.username} removed {target_p.user.username}",
+            type=MessageType.system
+        )
+        self.db.add(system_msg)
+        await self.db.commit()
+        await self.db.refresh(system_msg)
+        
+        # Broadcast Update
+        # 1. Notify the kicked user
+        kicked_msg = {
+            "type": "group_event", 
+            "event": "user_kicked",
+            "chatId": str(chat_id),
+            "userId": str(target_user_id) # The one who was kicked
+        }
+        await manager.send_personal_message(kicked_msg, target_user_id)
+
+        # 2. Notify remaining participants (system message + update member list)
+        sys_msg_dict = {
+            "id": str(system_msg.id),
+            "chatId": str(chat_id),
+            "senderId": None,
+            "text": system_msg.content,
+            "time": system_msg.created_at.strftime("%H:%M"),
+            "senderName": "System",
+            "senderAvatar": None,
+            "isIncoming": False,
+            "type": "system"
+        }
+        
+        # We also need to tell them to remove the member from their UI list
+        update_msg = {
+            "type": "group_event",
+            "event": "member_removed",
+            "chatId": str(chat_id),
+            "userId": str(target_user_id)
+        }
+
+        for p in chat.participants:
+            if p.user_id != target_user_id: # Don't send chat updates to the kicked user (they get the kick event)
+                await manager.send_personal_message(sys_msg_dict, p.user_id)
+                await manager.send_personal_message(update_msg, p.user_id)
+
         return {"status": "success", "message": "User kicked"}
 
     async def delete_group(self, admin_id: UUID, chat_id: UUID) -> dict:
@@ -406,10 +455,116 @@ class ChatService:
         if not admin_p or admin_p.role != UserRole.admin:
             raise HTTPException(status_code=403, detail="Only admin can dissolve group")
             
+        # Broadcast dissolution to all participants
+        dissolve_msg = {
+            "type": "group_event",
+            "event": "group_dissolved",
+            "chatId": str(chat_id)
+        }
+        
+        for p in chat.participants:
+            await manager.send_personal_message(dissolve_msg, p.user_id)
+
         await self.db.delete(chat)
         await self.db.commit()
         
-        return {"status": "success", "message": "Group dissolved"}
+    async def add_members(self, admin_id: UUID, chat_id: UUID, user_ids: List[UUID]) -> dict:
+        """Add members to a group chat."""
+        chat = await self.get_chat_details(chat_id, admin_id)
+        
+        if not chat.is_group:
+            raise HTTPException(status_code=400, detail="Not a group chat")
+            
+        # Verify admin
+        admin_p = next((p for p in chat.participants if p.user_id == admin_id), None)
+        if not admin_p or admin_p.role != UserRole.admin:
+            raise HTTPException(status_code=403, detail="Only admin can add members")
+            
+        # Filter out existing participants
+        existing_ids = set(p.user_id for p in chat.participants)
+        new_ids = [uid for uid in user_ids if uid not in existing_ids]
+        
+        if not new_ids:
+             return {"status": "success", "message": "No new members to add"}
+
+        new_participants = [
+            ConversationParticipant(conversation_id=chat_id, user_id=uid, role=UserRole.member)
+            for uid in new_ids
+        ]
+        self.db.add_all(new_participants)
+        await self.db.commit()
+        
+        # Expire participants to force reload
+        self.db.expire(chat, ['participants'])
+        
+        # Reload chat to get full participant details for names
+        stmt = select(Conversation).where(Conversation.id == chat_id).options(
+             selectinload(Conversation.participants).selectinload(ConversationParticipant.user)
+        )
+        result = await self.db.execute(stmt)
+        chat = result.scalars().first()
+        
+        # Create system message
+        # Fix: Convert IDs to strings for comparison to be safe
+        new_ids_str = [str(uid) for uid in new_ids]
+        added_users = [p.user for p in chat.participants if str(p.user_id) in new_ids_str]
+        
+        added_names = ", ".join([u.username for u in added_users])
+        
+        system_msg = Message(
+            conversation_id=chat_id,
+            sender_id=None,
+            content=f"{admin_p.user.username} added {added_names}",
+            type=MessageType.system
+        )
+        self.db.add(system_msg)
+        await self.db.commit()
+        await self.db.refresh(system_msg)
+
+        msg_dict = {
+            "id": str(system_msg.id),
+            "chatId": str(chat_id),
+            "senderId": None,
+            "text": system_msg.content,
+            "time": system_msg.created_at.strftime("%H:%M"),
+            "senderName": "System",
+            "senderAvatar": None,
+            "isIncoming": False,
+            "type": "system"
+        }
+        
+        # Notify all participants
+        for p in chat.participants:
+            await manager.send_personal_message(msg_dict, p.user_id)
+            
+            # If this is a newly added user, send them a specific "added_to_group" event
+            if str(p.user_id) in new_ids_str:
+                added_event = {
+                    "type": "group_event",
+                    "event": "added_to_group",
+                    "chatId": str(chat_id)
+                }
+                await manager.send_personal_message(added_event, p.user_id)
+            else:
+                # For existing users, update their member list
+                # We need to send the new members info
+                member_added_event = {
+                   "type": "group_event",
+                   "event": "member_added",
+                   "chatId": str(chat_id),
+                   "users": [
+                       {
+                           "id": str(u.id),
+                           "username": u.username,
+                           "avatar": u.avatar_url,
+                           "role": "member"
+                       } for u in added_users
+                   ]
+                }
+                await manager.send_personal_message(member_added_event, p.user_id)
+            
+        return {"status": "success", "message": "Members added"}
+
 
     async def get_user_chats(self, user_id: UUID) -> List[Chat]:
         stmt = select(Conversation).join(

@@ -40,4 +40,5 @@ export interface Message {
     senderName?: string; // For groups
     senderAvatar?: string; // For groups
     attachments?: Attachment[];
+    type?: 'text' | 'image' | 'file' | 'system';
 }

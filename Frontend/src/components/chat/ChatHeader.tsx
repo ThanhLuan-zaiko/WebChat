@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
-import { Search, MoreVertical, Phone, LogOut, Trash2 } from 'lucide-react';
+import { Search, MoreVertical, Phone, LogOut, Trash2, UserPlus } from 'lucide-react';
+import { ConfirmModal } from '../ui/ConfirmModal';
 import type { Chat } from '../../types';
 
 interface ChatHeaderProps {
@@ -17,6 +18,7 @@ interface ChatHeaderProps {
     onGroupInfo?: () => void;
     onLeaveGroup?: () => void;
     onDeleteGroup?: () => void;
+    onAddMembers?: () => void;
 }
 
 export const ChatHeader = ({
@@ -33,9 +35,14 @@ export const ChatHeader = ({
     onUnblockUser,
     onGroupInfo,
     onLeaveGroup,
-    onDeleteGroup
+    onDeleteGroup,
+    onAddMembers
 }: ChatHeaderProps) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        type: 'leave' | 'delete' | null;
+    }>({ isOpen: false, type: null });
     const menuRef = useRef<HTMLDivElement>(null);
 
     // Handle clicks outside for menu
@@ -130,10 +137,8 @@ export const ChatHeader = ({
                             {chat.isGroup && onLeaveGroup && (
                                 <button
                                     onClick={() => {
-                                        if (window.confirm("Are you sure you want to leave this group?")) {
-                                            onLeaveGroup();
-                                            setIsMenuOpen(false);
-                                        }
+                                        setConfirmModal({ isOpen: true, type: 'leave' });
+                                        setIsMenuOpen(false);
                                     }}
                                     className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
                                 >
@@ -141,13 +146,23 @@ export const ChatHeader = ({
                                     Leave Group
                                 </button>
                             )}
+                            {chat.isGroup && chat.role === 'admin' && onAddMembers && (
+                                <button
+                                    onClick={() => {
+                                        onAddMembers();
+                                        setIsMenuOpen(false);
+                                    }}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                    <UserPlus className="w-4 h-4" />
+                                    Add Member
+                                </button>
+                            )}
                             {chat.isGroup && chat.role === 'admin' && onDeleteGroup && (
                                 <button
                                     onClick={() => {
-                                        if (window.confirm("Are you sure you want to dissolve this group? This action cannot be undone.")) {
-                                            onDeleteGroup();
-                                            setIsMenuOpen(false);
-                                        }
+                                        setConfirmModal({ isOpen: true, type: 'delete' });
+                                        setIsMenuOpen(false);
                                     }}
                                     className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center gap-2"
                                 >
@@ -159,6 +174,21 @@ export const ChatHeader = ({
                     )}
                 </div>
             </div>
+
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                onConfirm={() => {
+                    if (confirmModal.type === 'leave' && onLeaveGroup) onLeaveGroup();
+                    if (confirmModal.type === 'delete' && onDeleteGroup) onDeleteGroup();
+                }}
+                title={confirmModal.type === 'leave' ? "Leave Group" : "Dissolve Group"}
+                message={confirmModal.type === 'leave'
+                    ? "Are you sure you want to leave this group?"
+                    : "Are you sure you want to dissolve this group? This action cannot be undone."}
+                confirmText={confirmModal.type === 'leave' ? "Leave" : "Dissolve"}
+                isDestructive={true}
+            />
         </div>
     );
 };
