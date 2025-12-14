@@ -232,3 +232,18 @@ async def add_members(
     """
     service = ChatService(db)
     return await service.add_members(current_user.id, chat_id, user_ids)
+
+
+@router.post("/{chat_id}/messages/{message_id}/reactions", response_model=dict)
+async def add_reaction(
+    chat_id: UUID,
+    message_id: UUID,
+    emoji: Annotated[str, Query()],
+    current_user: Annotated[User, Depends(deps.get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """
+    Toggle reaction on a message.
+    """
+    service = ChatService(db)
+    return await service.add_reaction(current_user.id, chat_id, message_id, emoji)

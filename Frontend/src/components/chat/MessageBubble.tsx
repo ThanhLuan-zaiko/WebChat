@@ -1,6 +1,6 @@
 import type { Message } from '../../types';
 import { cn } from '../ui';
-import { CheckCheck, File, Download, Trash2 } from 'lucide-react';
+import { CheckCheck, File, Download, Trash2, Smile } from 'lucide-react';
 import { useState } from 'react';
 
 interface MessageBubbleProps {
@@ -8,12 +8,15 @@ interface MessageBubbleProps {
     onRecallMessage: (messageId: string) => void;
     onClick?: () => void;
     isGroup?: boolean;
+    onToggleReaction: (messageId: string, emoji: string) => void;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
-export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup, onToggleReaction }: MessageBubbleProps) => {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+    const [showReactionPicker, setShowReactionPicker] = useState(false);
+    const emojis = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
     const formatFileSize = (bytes: number | null): string => {
         if (!bytes) return '';
@@ -72,13 +75,59 @@ export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: Me
 
                 {/* Recall Button - Only for outgoing messages that are not recalled */}
                 {!message.isIncoming && !message.isRecalled && (
-                    <button
-                        onClick={() => onRecallMessage(message.id)}
-                        className="opacity-0 group-hover/bubble:opacity-100 transition-opacity absolute top-1/2 -translate-y-1/2 -left-8 p-1.5 text-red-500 hover:bg-red-50 rounded-full"
-                        title="Recall messages"
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="absolute top-1/2 -translate-y-1/2 -left-8 flex flex-col gap-1 z-10">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onRecallMessage(message.id); }}
+                            className="opacity-0 group-hover/bubble:opacity-100 transition-opacity p-1.5 text-red-500 hover:bg-red-50 rounded-full"
+                            title="Recall message"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </button>
+                    </div>
+                )}
+
+                {/* Reaction Button */}
+                {!message.isRecalled && (
+                    <div className={cn(
+                        "absolute top-1/2 -translate-y-1/2 flex flex-col gap-1 z-10",
+                        message.isIncoming ? "-right-8" : "-left-16"
+                    )}>
+                        <div className="relative">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowReactionPicker(!showReactionPicker); }}
+                                className={cn(
+                                    "opacity-0 group-hover/bubble:opacity-100 transition-opacity p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-full",
+                                    showReactionPicker && "opacity-100 text-yellow-500 bg-yellow-50"
+                                )}
+                                title="Add reaction"
+                            >
+                                <Smile className="h-4 w-4" />
+                            </button>
+                            {showReactionPicker && (
+                                <div
+                                    className={cn(
+                                        "absolute top-8 bg-white shadow-xl rounded-full px-3 py-2 flex gap-2 animate-in fade-in zoom-in duration-200 border border-gray-100",
+                                        message.isIncoming ? "left-0" : "right-0" // Picker alignment
+                                    )}
+                                    style={{ width: 'max-content' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {emojis.map(emoji => (
+                                        <button
+                                            key={emoji}
+                                            onClick={() => {
+                                                onToggleReaction(message.id, emoji);
+                                                setShowReactionPicker(false);
+                                            }}
+                                            className="hover:scale-125 transition-transform text-lg leading-none"
+                                        >
+                                            {emoji}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 )}
 
                 {!message.isIncoming && <div className="flex-1" />}
@@ -158,6 +207,25 @@ export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup }: Me
                                 </span>
                                 {!message.isIncoming && <CheckCheck className="h-3 w-3 text-[#4fae4e]" />}
                             </div>
+
+                            {/* Reactions Display */}
+                            {message.reactions && message.reactions.length > 0 && (
+                                <div className="flex gap-1.5 mt-2 flex-wrap justify-end">
+                                    {message.reactions.map(r => (
+                                        <button
+                                            key={r.emoji}
+                                            onClick={(e) => { e.stopPropagation(); onToggleReaction(message.id, r.emoji); }}
+                                            className={cn(
+                                                "text-[11px] px-1.5 py-0.5 rounded-full border border-gray-200 flex items-center gap-1 shadow-sm transition-colors",
+                                                r.userHasReacted ? "bg-blue-100 border-blue-300 text-blue-700" : "bg-white hover:bg-gray-50 text-gray-600"
+                                            )}
+                                        >
+                                            <span>{r.emoji}</span>
+                                            <span className={cn("font-medium", r.userHasReacted && "text-blue-700")}>{r.count}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

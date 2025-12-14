@@ -2,6 +2,7 @@ from .attachment import Attachment
 from .base import Base
 from .conversation import Conversation, ConversationParticipant, UserRole
 from .message import Message, MessageType
+from .message_reaction import MessageReaction
 from app.models.user import User
 from app.models.user_block import UserBlock
 
@@ -13,6 +14,7 @@ __all__ = [
     "UserRole",
     "Message",
     "MessageType",
+    "MessageReaction",
     "Attachment",
     "UserBlock",
 ]

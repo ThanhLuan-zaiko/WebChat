@@ -28,6 +28,12 @@ export interface Attachment {
     fileSize: number | null;
 }
 
+export interface Reaction {
+    emoji: string;
+    count: number;
+    userHasReacted: boolean;
+}
+
 export interface Message {
     id: string;
     chatId: string;
@@ -40,5 +46,6 @@ export interface Message {
     senderName?: string; // For groups
     senderAvatar?: string; // For groups
     attachments?: Attachment[];
+    reactions?: Reaction[];
     type?: 'text' | 'image' | 'file' | 'system';
 }

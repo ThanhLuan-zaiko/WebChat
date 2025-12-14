@@ -10,6 +10,7 @@ interface MessageListProps {
     isSearching: boolean;
     onJumpToMessage: (messageId: string) => void;
     isGroup: boolean;
+    onToggleReaction: (messageId: string, emoji: string) => void;
 }
 
 export const MessageList = ({
@@ -18,7 +19,8 @@ export const MessageList = ({
     onRecallMessage,
     isSearching,
     onJumpToMessage,
-    isGroup
+    isGroup,
+    onToggleReaction
 }: MessageListProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,7 @@ export const MessageList = ({
                             onRecallMessage={onRecallMessage}
                             onClick={isSearching ? () => onJumpToMessage(msg.id) : undefined}
                             isGroup={isGroup}
+                            onToggleReaction={onToggleReaction}
                         />
                     ))}
                     {!isSearching && <div ref={messagesEndRef} />}

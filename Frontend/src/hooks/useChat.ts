@@ -223,6 +223,47 @@ export const useChat = (user: User | null) => {
                 }
             }
 
+            // Handle Reaction Updates
+            if (msg.type === 'reaction_update') {
+                const { messageId, emoji, action, userId, count } = msg;
+                const isMe = userId === user.id;
+
+                setMessages(prev => prev.map(m => {
+                    if (m.id === messageId) {
+                        const currentReactions = m.reactions || [];
+                        const reactionIndex = currentReactions.findIndex(r => r.emoji === emoji);
+
+                        let newReactions = [...currentReactions];
+
+                        if (reactionIndex > -1) {
+                            // Update existing reaction
+                            if (count === 0) {
+                                newReactions = newReactions.filter(r => r.emoji !== emoji);
+                            } else {
+                                newReactions[reactionIndex] = {
+                                    ...newReactions[reactionIndex],
+                                    count: count,
+                                    userHasReacted: isMe
+                                        ? (action === 'added')
+                                        : newReactions[reactionIndex].userHasReacted
+                                };
+                            }
+                        } else if (count > 0) {
+                            // Add new reaction
+                            newReactions.push({
+                                emoji,
+                                count,
+                                userHasReacted: isMe
+                            });
+                        }
+
+                        return { ...m, reactions: newReactions };
+                    }
+                    return m;
+                }));
+                return;
+            }
+
             // Standard message handling
             // Recompute isIncoming based on current user
             const isIncoming = msg.senderId !== user.id;
@@ -432,6 +473,18 @@ export const useChat = (user: User | null) => {
         }
     };
 
+    const handleToggleReaction = async (messageId: string, emoji: string) => {
+        if (!selectedChatId) return;
+        try {
+            await chatService.toggleReaction(selectedChatId, messageId, emoji);
+            // We rely on websocket event for optimistic UI updates usually, 
+            // but for faster feedback we could optimistic update here too.
+            // Let's rely on WS for consistency for now, it's fast enough locally.
+        } catch (error) {
+            console.error("Failed to toggle reaction:", error);
+        }
+    };
+
     const selectedChat = chats.find(c => c.id === selectedChatId);
 
     return {
@@ -459,6 +512,7 @@ export const useChat = (user: User | null) => {
         handleLeaveGroup,
         handleKickMember,
         handleDeleteGroup,
+        handleToggleReaction,
         handleAddMembers: async (chatId: string, userIds: string[]) => {
             try {
                 const token = localStorage.getItem('token');

@@ -31,6 +31,7 @@ interface ChatAreaProps {
     onKickMember: (chatId: string, userId: string) => void;
     onDeleteGroup: (chatId: string) => void;
     onAddMembers: (chatId: string, userIds: string[]) => void;
+    onToggleReaction: (messageId: string, emoji: string) => void;
 }
 
 export const ChatArea = ({
@@ -54,7 +55,8 @@ export const ChatArea = ({
     onLeaveGroup,
     onKickMember,
     onDeleteGroup,
-    onAddMembers
+    onAddMembers,
+    onToggleReaction
 }: ChatAreaProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -164,6 +166,7 @@ export const ChatArea = ({
                 isSearching={isSearching}
                 onJumpToMessage={handleJumpToMessage}
                 isGroup={!!chat.isGroup}
+                onToggleReaction={onToggleReaction}
             />
 
             <ChatInput

@@ -10,7 +10,7 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Conversation, ConversationParticipant, User, Message, MessageType, UserBlock, Attachment, UserRole
+from app.models import Conversation, ConversationParticipant, User, Message, MessageType, UserBlock, Attachment, UserRole, MessageReaction
 from app.schemas.conversation import ConversationCreate, Chat, ChatParticipant
 from app.services.websocket import manager
 
@@ -226,7 +226,8 @@ class ChatService:
             Message.created_at.asc()
         ).options(
             selectinload(Message.sender),
-            selectinload(Message.attachments)
+            selectinload(Message.attachments),
+            selectinload(Message.reactions)
         )
         
         result = await self.db.execute(stmt)
@@ -245,6 +246,20 @@ class ChatService:
                 for att in msg.attachments
             ]
             
+            # Process reactions
+            reactions_map = {}
+            for reaction in msg.reactions:
+                if reaction.emoji not in reactions_map:
+                    reactions_map[reaction.emoji] = {"count": 0, "userHasReacted": False}
+                reactions_map[reaction.emoji]["count"] += 1
+                if reaction.user_id == user_id:
+                    reactions_map[reaction.emoji]["userHasReacted"] = True
+            
+            reactions_dto = [
+                {"emoji": k, "count": v["count"], "userHasReacted": v["userHasReacted"]}
+                for k, v in reactions_map.items()
+            ]
+
             messages_dto.append({
                 "id": str(msg.id),
                 "chatId": str(chat_id),
@@ -255,7 +270,8 @@ class ChatService:
                 "senderAvatar": msg.sender.avatar_url if msg.sender else None,
                 "isIncoming": msg.sender_id != user_id if msg.sender_id else False,
                 "type": msg.type,
-                "attachments": attachments_data
+                "attachments": attachments_data,
+                "reactions": reactions_dto
             })
         return messages_dto
 
@@ -564,6 +580,90 @@ class ChatService:
                 await manager.send_personal_message(member_added_event, p.user_id)
             
         return {"status": "success", "message": "Members added"}
+
+    async def add_reaction(self, user_id: UUID, chat_id: UUID, message_id: UUID, emoji: str) -> dict:
+        """Toggle reaction on a message."""
+        # Verify chat access
+        chat = await self.get_chat_details(chat_id, user_id)
+        
+        # Verify message exists in this chat
+        stmt = select(Message).where(
+            and_(
+                Message.id == message_id,
+                Message.conversation_id == chat_id,
+                Message.is_deleted == False
+            )
+        )
+        result = await self.db.execute(stmt)
+        message = result.scalars().first()
+        
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # Check existing reaction
+        stmt = select(MessageReaction).where(
+            and_(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == user_id,
+                MessageReaction.emoji == emoji
+            )
+        )
+        result = await self.db.execute(stmt)
+        existing_reaction = result.scalars().first()
+        
+        if existing_reaction:
+            # Remove reaction
+            await self.db.delete(existing_reaction)
+            action = "removed"
+        else:
+            # Add reaction
+            new_reaction = MessageReaction(
+                message_id=message_id,
+                user_id=user_id,
+                emoji=emoji
+            )
+            self.db.add(new_reaction)
+            action = "added"
+            
+        await self.db.commit()
+        
+        # Get updated reactions for this message to broadcast
+        # Reload message with reactions
+        # We need to construct the full reaction list for the UI to update fully
+        
+        stmt = select(MessageReaction).where(MessageReaction.message_id == message_id)
+        result = await self.db.execute(stmt)
+        all_reactions = result.scalars().all()
+        
+        # We need to broadcast the FULL state of reactions for this message to everyone
+        # But wait, "userHasReacted" depends on the receiver.
+        # So we can't broadcast a single static object for everyone if it contains "userHasReacted".
+        # However, we can broadcast the raw list of reactions or a summary map, 
+        # and let the frontend calculate "userHasReacted" if we send the list of user_ids per emoji,
+        # OR we send a generic event "reaction_updated" and client re-fetches or we send careful data.
+        
+        # Better approach for simpler broadcast:
+        # Send the event: { type: "reaction_update", messageId, emoji, action, userId }
+        # Frontend can update its count locally.
+        # But if we want to be robust, we should send the new count.
+        
+        # Let's calculate the new count for this specific emoji
+        count = sum(1 for r in all_reactions if r.emoji == emoji)
+        
+        reaction_event = {
+            "type": "reaction_update",
+            "chatId": str(chat_id),
+            "messageId": str(message_id),
+            "emoji": emoji,
+            "action": action, # "added" or "removed"
+            "userId": str(user_id),
+            "count": count
+        }
+        
+        for p in chat.participants:
+            await manager.send_personal_message(reaction_event, p.user_id)
+            
+        return {"status": "success", "action": action}
 
 
     async def get_user_chats(self, user_id: UUID) -> List[Chat]:

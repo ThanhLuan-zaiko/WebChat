@@ -77,5 +77,9 @@ export const chatService = {
 
     deleteGroup: async (chatId: string): Promise<void> => {
         await api.delete(`/chats/${chatId}`);
+    },
+
+    toggleReaction: async (chatId: string, messageId: string, emoji: string): Promise<void> => {
+        await api.post(`/chats/${chatId}/messages/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`);
     }
 };

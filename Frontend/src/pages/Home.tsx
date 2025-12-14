@@ -36,6 +36,7 @@ const HomePage = () => {
         handleKickMember,
         handleDeleteGroup,
         handleAddMembers,
+        handleToggleReaction,
     } = useChat(user);
 
     const {
@@ -117,6 +118,7 @@ const HomePage = () => {
                     onKickMember={handleKickMember}
                     onDeleteGroup={handleDeleteGroup}
                     onAddMembers={handleAddMembers}
+                    onToggleReaction={handleToggleReaction}
                 />
             ) : (
                 <EmptyState />

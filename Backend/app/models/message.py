@@ -55,6 +55,12 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         lazy="selectin",
         cascade="all, delete-orphan",
     )
+    reactions: Mapped[list["MessageReaction"]] = relationship(
+        "MessageReaction",
+        back_populates="message",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
     
     def __repr__(self) -> str:
         return f"<Message(id={self.id}, type={self.type})>"
@@ -64,3 +70,4 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 from app.models.conversation import Conversation  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.models.attachment import Attachment  # noqa: E402
+from app.models.message_reaction import MessageReaction  # noqa: E402
