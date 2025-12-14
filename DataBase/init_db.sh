@@ -79,6 +79,7 @@ docker exec -i $CONTAINER_NAME psql -U $NEW_DB_USER -d $NEW_DB_NAME <<EOF
         sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
         content TEXT,
         type message_type_enum DEFAULT 'text',
+        is_encrypted BOOLEAN DEFAULT FALSE,
         is_deleted BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

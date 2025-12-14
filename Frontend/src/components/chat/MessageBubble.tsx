@@ -1,7 +1,8 @@
 import type { Message } from '../../types';
 import { cn } from '../ui';
-import { CheckCheck, File, Download, Trash2, Smile } from 'lucide-react';
+import { CheckCheck, File, Download, Trash2, Smile, Lock } from 'lucide-react';
 import { useState } from 'react';
+import { decryptMessage } from '../../utils/encryption';
 
 interface MessageBubbleProps {
     message: Message;
@@ -9,11 +10,12 @@ interface MessageBubbleProps {
     onClick?: () => void;
     isGroup?: boolean;
     onToggleReaction: (messageId: string, emoji: string) => void;
+    encryptionKey: string;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
-export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup, onToggleReaction }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup, onToggleReaction, encryptionKey }: MessageBubbleProps) => {
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
     const [showReactionPicker, setShowReactionPicker] = useState(false);
     const emojis = ["👍", "❤️", "😂", "😮", "😢", "😡"];
@@ -198,7 +200,23 @@ export const MessageBubble = ({ message, onRecallMessage, onClick, isGroup, onTo
                             )}
 
                             {/* Text content */}
-                            {message.text && <p className="whitespace-pre-wrap text-[15px]">{message.text}</p>}
+                            {message.isEncrypted ? (
+                                <div className="flex items-center gap-2">
+                                    <Lock className="w-3 h-3 text-gray-400" />
+                                    <p className={cn("whitespace-pre-wrap text-[15px]", !encryptionKey && "italic text-gray-500")}>
+                                        {(() => {
+                                            if (!message.text) return '';
+                                            if (!encryptionKey) return "Encrypted Message";
+                                            const decrypted = decryptMessage(message.text, encryptionKey);
+                                            // Simple check if decryption produced garbage or failed (utility returns specific string on fail)
+                                            if (decrypted === "Failed to decrypt") return "Encrypted Message (Wrong Key)";
+                                            return decrypted;
+                                        })()}
+                                    </p>
+                                </div>
+                            ) : (
+                                message.text && <p className="whitespace-pre-wrap text-[15px]">{message.text}</p>
+                            )}
 
                             {/* Time and read status */}
                             <div className="flex justify-end items-center gap-1 mt-1">

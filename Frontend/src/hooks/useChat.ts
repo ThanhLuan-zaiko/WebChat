@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { chatService } from '../services/chatService';
 import { webSocketService } from '../services/websocketService';
+import { encryptMessage } from '../utils/encryption';
 import type { Chat, Message, User } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
@@ -18,6 +19,7 @@ export const useChat = (user: User | null) => {
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
     const [isSearchingMessages, setIsSearchingMessages] = useState(false);
     const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
+    const [encryptionKey, setEncryptionKey] = useState<string>('');
 
     // Fetch chats on mount
     useEffect(() => {
@@ -347,6 +349,14 @@ export const useChat = (user: User | null) => {
         if (!messageInput.trim() && (!files || files.length === 0)) return;
 
         try {
+            let textToSend = messageInput;
+            let isEncrypted = false;
+
+            if (encryptionKey && textToSend) {
+                textToSend = encryptMessage(textToSend, encryptionKey);
+                isEncrypted = true;
+            }
+
             // If this is a new chat (no ID yet), create it first
             if (selectedUserForNewChat && !selectedChatId) {
                 const newChat = await chatService.createChat(selectedUserForNewChat.id);
@@ -355,10 +365,10 @@ export const useChat = (user: User | null) => {
                 setSelectedUserForNewChat(null);
 
                 // Send message to the newly created chat
-                await chatService.sendMessage(newChat.id, messageInput, files);
+                await chatService.sendMessage(newChat.id, textToSend, isEncrypted, files);
             } else if (selectedChatId) {
                 // Normal flow: send message to existing chat
-                await chatService.sendMessage(selectedChatId, messageInput, files);
+                await chatService.sendMessage(selectedChatId, textToSend, isEncrypted, files);
             } else {
                 return; // No chat selected and no new user
             }
@@ -526,7 +536,9 @@ export const useChat = (user: User | null) => {
                 console.error("Failed to add members", error);
                 throw error;
             }
-        }
+        },
+        encryptionKey,
+        setEncryptionKey
     };
 };
 

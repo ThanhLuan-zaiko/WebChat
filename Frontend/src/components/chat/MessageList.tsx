@@ -11,6 +11,7 @@ interface MessageListProps {
     onJumpToMessage: (messageId: string) => void;
     isGroup: boolean;
     onToggleReaction: (messageId: string, emoji: string) => void;
+    encryptionKey: string;
 }
 
 export const MessageList = ({
@@ -20,7 +21,8 @@ export const MessageList = ({
     isSearching,
     onJumpToMessage,
     isGroup,
-    onToggleReaction
+    onToggleReaction,
+    encryptionKey
 }: MessageListProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,7 @@ export const MessageList = ({
                             onClick={isSearching ? () => onJumpToMessage(msg.id) : undefined}
                             isGroup={isGroup}
                             onToggleReaction={onToggleReaction}
+                            encryptionKey={encryptionKey}
                         />
                     ))}
                     {!isSearching && <div ref={messagesEndRef} />}

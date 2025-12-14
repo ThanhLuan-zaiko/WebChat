@@ -15,7 +15,7 @@ export const chatService = {
         return response.data;
     },
 
-    sendMessage: async (chatId: string, text: string, files?: File[]): Promise<Message> => {
+    sendMessage: async (chatId: string, text: string, isEncrypted: boolean = false, files?: File[]): Promise<Message> => {
         const formData = new FormData();
 
         if (text) {
@@ -28,7 +28,7 @@ export const chatService = {
             });
         }
 
-        const response = await api.post(`/chats/${chatId}/messages?text=${encodeURIComponent(text || '')}`, formData, {
+        const response = await api.post(`/chats/${chatId}/messages?text=${encodeURIComponent(text || '')}&is_encrypted=${isEncrypted}`, formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },

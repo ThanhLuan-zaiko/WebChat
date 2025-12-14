@@ -38,6 +38,7 @@ class Message(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         Enum(MessageType, name="message_type_enum", create_type=False),
         default=MessageType.text,
     )
+    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     
     # Relationships

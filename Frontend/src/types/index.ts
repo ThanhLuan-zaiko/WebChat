@@ -47,5 +47,6 @@ export interface Message {
     senderAvatar?: string; // For groups
     attachments?: Attachment[];
     reactions?: Reaction[];
-    type?: 'text' | 'image' | 'file' | 'system';
+    type?: 'text' | 'image' | 'video' | 'file' | 'system';
+    isEncrypted?: boolean;
 }

@@ -160,7 +160,7 @@ class ChatService:
             })
         return attachments_data
 
-    async def send_message(self, user: User, chat_id: UUID, text: str | None, files: List[UploadFile]) -> dict:
+    async def send_message(self, user: User, chat_id: UUID, text: str | None, is_encrypted: bool, files: List[UploadFile]) -> dict:
         """Process sending a message."""
         chat = await self.get_chat_details(chat_id, user.id)
         await self.check_block_status(chat, user.id)
@@ -181,7 +181,8 @@ class ChatService:
             conversation_id=chat_id,
             sender_id=user.id,
             content=text,
-            type=message_type
+            type=message_type,
+            is_encrypted=is_encrypted
         )
         self.db.add(new_message)
         await self.db.flush()
@@ -200,6 +201,7 @@ class ChatService:
             "senderName": user.username,
             "senderAvatar": user.avatar_url,
             "type": new_message.type,
+            "isEncrypted": new_message.is_encrypted,
             "attachments": attachments_data
         }
         
@@ -270,6 +272,7 @@ class ChatService:
                 "senderAvatar": msg.sender.avatar_url if msg.sender else None,
                 "isIncoming": msg.sender_id != user_id if msg.sender_id else False,
                 "type": msg.type,
+                "isEncrypted": msg.is_encrypted,
                 "attachments": attachments_data,
                 "reactions": reactions_dto
             })

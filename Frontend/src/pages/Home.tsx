@@ -37,6 +37,8 @@ const HomePage = () => {
         handleDeleteGroup,
         handleAddMembers,
         handleToggleReaction,
+        encryptionKey,
+        setEncryptionKey,
     } = useChat(user);
 
     const {
@@ -119,6 +121,8 @@ const HomePage = () => {
                     onDeleteGroup={handleDeleteGroup}
                     onAddMembers={handleAddMembers}
                     onToggleReaction={handleToggleReaction}
+                    encryptionKey={encryptionKey}
+                    onSetEncryptionKey={setEncryptionKey}
                 />
             ) : (
                 <EmptyState />

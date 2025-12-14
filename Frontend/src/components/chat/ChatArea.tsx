@@ -32,6 +32,8 @@ interface ChatAreaProps {
     onDeleteGroup: (chatId: string) => void;
     onAddMembers: (chatId: string, userIds: string[]) => void;
     onToggleReaction: (messageId: string, emoji: string) => void;
+    encryptionKey: string;
+    onSetEncryptionKey: (key: string) => void;
 }
 
 export const ChatArea = ({
@@ -56,7 +58,9 @@ export const ChatArea = ({
     onKickMember,
     onDeleteGroup,
     onAddMembers,
-    onToggleReaction
+    onToggleReaction,
+    encryptionKey,
+    onSetEncryptionKey
 }: ChatAreaProps) => {
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -157,6 +161,8 @@ export const ChatArea = ({
                 onLeaveGroup={() => onLeaveGroup(chat.id)}
                 onDeleteGroup={() => onDeleteGroup(chat.id)}
                 onAddMembers={() => setShowAddMemberModal(true)}
+                encryptionKey={encryptionKey}
+                onSetEncryptionKey={onSetEncryptionKey}
             />
 
             <MessageList
@@ -167,6 +173,7 @@ export const ChatArea = ({
                 onJumpToMessage={handleJumpToMessage}
                 isGroup={!!chat.isGroup}
                 onToggleReaction={onToggleReaction}
+                encryptionKey={encryptionKey}
             />
 
             <ChatInput

@@ -121,11 +121,12 @@ async def send_message(
     current_user: Annotated[User, Depends(deps.get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     text: Annotated[str | None, Query()] = None,
+    is_encrypted: Annotated[bool, Query()] = False,
     files: List[UploadFile] = File(default=[]),
 ) -> Any:
     """Send a message with optional file attachments."""
     service = ChatService(db)
-    return await service.send_message(current_user, chat_id, text, files)
+    return await service.send_message(current_user, chat_id, text, is_encrypted, files)
 
 
 @router.get("/{chat_id}/messages", response_model=List[dict])

@@ -31,6 +31,7 @@ class MessageCreate(BaseModel):
     """Schema for creating a message."""
     text: str | None = Field(None, description="Message text content")
     type: str = Field("text", description="Message type: text, image, file")
+    is_encrypted: bool = False
 
 
 class MessageResponse(BaseModel):
@@ -42,6 +43,7 @@ class MessageResponse(BaseModel):
     time: str
     sender_name: str | None
     is_incoming: bool
+    is_encrypted: bool
     attachments: list[AttachmentResponse] = []
 
     class Config:
